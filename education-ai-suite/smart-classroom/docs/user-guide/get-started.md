@@ -94,6 +94,19 @@ To use IPEX for summarization, ensure:
 summarizer:
   provider: ipex
 ```
+### d. Polish Audio Transcription and Summarization  
+
+For Polish audio transcription, switch to `speakleash/Bielik-7B-Instruct-v0.1` in your config (`smart-classroom/config.yaml`):
+```bash
+asr:
+  provider: openvino
+  name: whisper-small # whisper-small for Polish audio
+summarizer:
+    provider: openvino # ipex or openvino
+    name: speakleash/Bielik-7B-Instruct-v0.1
+    ...
+    language: pl
+```
 
 **Important: After updating the configuration, reload the application for changes to take effect.**
 
