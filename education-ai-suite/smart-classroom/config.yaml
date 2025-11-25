@@ -19,25 +19,27 @@ models:
 
   summarizer:
     provider: openvino # ipex or openvino
-    name: Qwen/Qwen2-7B-Instruct # Qwen/Qwen2-7B-Instruct or Qwen/Qwen2.5-7B-Instruct
+    name: speakleash/Bielik-7B-Instruct-v0.1 # Qwen/Qwen2-7B-Instruct or Qwen/Qwen2.5-7B-Instruct
     device: GPU # GPU or CPU
     weight_format: int8 # supports fp16, int4, int8 (Recommended)
     max_new_tokens: 1024
     temperature: 0.3 # 0.5 default
     use_cache: True
     models_base_path: "models"
-    language: en # en or zh
+    language: pl # en or zh
     system_prompt: 
       en: "Summarize the classroom transcription concisely and in Markdown format with heading. Preserve the full meaning of the lecture, focusing on key points and concepts. Do not add commentary or extra details beyond the transcription."
       zh: "你是一个课堂教学助手，根据提供的原始课堂音频的转录文本，以Markdown格式提炼出本节课的核心内容、知识点结构、讲解顺序，解释每个知识点后，用简洁清晰的语言进行总结。注意不要遗漏主要知识点，也不要捏造任何没有提及的知识点，总结要保证知识点真实准确，避免任何冗余或误导性内容。"
+      pl: "Podsumuj transkrypcję zajęć w sposób zwięzły i w formacie Markdown z nagłówkiem. Zachowaj pełne znaczenie wykładu, koncentrując się na kluczowych punktach i najważniejszych pojęciach. Podsumowanie powinno brzmieć jak samodzielne, końcowe wyjaśnienie treści — naturalne do przeczytania i niezależne od źródła. Nie dodawaj komentarzy ani dodatkowych informacji wykraczających poza treść."
     model_hub: huggingface # huggingface or modelscope
 
 mindmap:
   system_prompt:
     en: "Generate a Mermaid mindmap with proper syntax. Use exactly this format: Start with 'mindmap', then one root node with double parentheses, then child nodes with proper indentation (2 spaces per level). No bullet points, no multiple root nodes. There must be exactly ONE 'mindmap' declaration and ONE root node. Example: mindmap\n  root((Main Topic))\n    Child1\n      Subchild1\n      Subchild2\n    Child2\n      Subchild3"
     zh: "生成正确语法的Mermaid思维导图。只允许一个'mindmap'根节点，并以'mindmap'开头。必须且只能有一个根节点((主题))，所有内容都应在同一个思维导图中，从该根节点展开。不要重复'mindmap'，不要使用多个根节点。不要使用Markdown格式（不要包含```mermaid或```）。示例：mindmap\n  root((课堂主题))\n    部分一\n      子节点A\n      子节点B\n    部分二\n      子节点C"
+    pl: "Wygeneruj mapę myśli Mermaid z poprawną składnią. Użyj dokładnie tego formatu: zacznij od ‘mindmap’, następnie jeden węzeł główny z podwójnymi nawiasami, potem węzły podrzędne z prawidłowym wcięciem (2 spacje na poziom). Bez wypunktowań, bez wielu węzłów głównych. Musi być dokładnie JEDNA deklaracja ‘mindmap’ i JEDEN węzeł główny. Przykład: mindmap\n root((Główny Temat))\n Child1\n Subchild1\n Subchild2\n Child2\n Subchild3"
   min_token: 20
-
+  
 audio_preprocessing:
   chunk_duration_sec: 15
   silence_threshold: -35  # in dB
