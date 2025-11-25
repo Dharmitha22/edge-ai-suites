@@ -96,11 +96,11 @@ summarizer:
 ```
 ### d. Polish Audio Transcription and Summarization  
 
-For Polish audio transcription, switch to `speakleash/Bielik-7B-Instruct-v0.1` in your config (`smart-classroom/config.yaml`):
+To handle Polish audio transcription, configure your smart-classroom/config.yaml to use speakleash/Bielik-7B-Instruct-v0.1 for summarization and whisper-small to higher for ASR:
 ```bash
 asr:
   provider: openvino
-  name: whisper-small # whisper-small for Polish audio
+  name: whisper-small # use whisper-small or higher for better polish transcription
 summarizer:
     provider: openvino # ipex or openvino
     name: speakleash/Bielik-7B-Instruct-v0.1
