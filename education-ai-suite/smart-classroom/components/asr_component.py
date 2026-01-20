@@ -57,12 +57,15 @@ class ASRComponent(PipelineComponent):
 
         project_config = RuntimeConfig.get_section("Project")
         project_path = os.path.join(project_config.get("location"), project_config.get("name"), self.session_id)
-        StorageManager.save(os.path.join(project_path, "transcription.txt"), "", append=False)
+
+        transcript_path = os.path.join(project_path, "transcription.txt")
+        StorageManager.save(transcript_path, "", append=False)
 
         start_time = time.perf_counter()
         default_torch_threads = None
-        try: 
-            if self.provider in ["openai", "funasr"] and self.threads_limit and self.threads_limit > 0:
+
+        try:
+            if self.provider in ["openai", "funasr"] and self.threads_limit:
                 default_torch_threads = torch.get_num_threads()
                 torch.set_num_threads(self.threads_limit)
 
@@ -70,21 +73,17 @@ class ASRComponent(PipelineComponent):
                 chunk_path = chunk_data["chunk_path"]
                 transcription = self.asr.transcribe(chunk_path, temperature=self.temperature)
 
-                ui_segments = []        # <-- structured for frontend
-                transcribed_text = ""   # <-- flat text for file saving
+                ui_segments = []
+                transcribed_lines = []
 
                 if self.enable_diarization and transcription["segments"]:
-                    # Speaker turns from Pyannote
-                    speaker_turns = self.pyannote_diarizer.diarize(chunk_path)
-                    logger.debug(f"[DIARIZER] Produced {len(speaker_turns)} speaker turns")
 
-                    timeline_segments = []     # frontend output
-                    speaker_lines = []         # text file output
+                    speaker_turns = self.pyannote_diarizer.diarize(chunk_path)
 
                     for sent in transcription["segments"]:
-
                         if not sent["text"].strip():
                             continue
+
                         mid = (sent["start"] + sent["end"]) / 2.0
 
                         speaker = "UNKNOWN"
@@ -93,66 +92,79 @@ class ASRComponent(PipelineComponent):
                                 speaker = turn["speaker"]
                                 break
 
+                        # rename SPEAKER_00 → STUDENT_00
+                        if speaker.startswith("SPEAKER"):
+                            speaker = speaker.replace("SPEAKER", "STUDENT")
+
                         text = sent["text"].strip()
                         start = float(sent["start"])
-                        end   = float(sent["end"])
+                        end = float(sent["end"])
 
-                        # ---- frontend timeline entry ----
-                        timeline_segments.append({
+                        ui_segments.append({
                             "speaker": speaker,
                             "text": text,
                             "start": start,
                             "end": end
                         })
 
-                        # ---- Accumulate text length per speaker ----
-                        if speaker != "UNKNOWN":   # ignore unknown
+                        if speaker != "UNKNOWN":
                             self.speaker_text_len[speaker] = (
                                 self.speaker_text_len.get(speaker, 0) + len(text)
                             )
 
-                        # ---- file line ----
-                        speaker_lines.append(f"{speaker}: {text}")
+                        transcribed_lines.append(f"{speaker}: {text}")
 
-                    transcribed_text = "\n".join(speaker_lines) + "\n"
-
-                    # Save speaker transcript file
-                    StorageManager.save_async(
-                        os.path.join(project_path, "speaker_transcription.txt"),
-                        "\n".join(speaker_lines) + "\n",
-                        append=True
-                    )
+                    transcribed_text = "\n".join(transcribed_lines) + "\n"
 
                 else:
                     transcribed_text = transcription["text"]
-                    timeline_segments = [{
+                    ui_segments = [{
                         "speaker": None,
                         "text": transcribed_text,
                         "start": 0.0,
                         "end": 0.0
                     }]
 
-                # cleanup chunk
                 if os.path.exists(chunk_path) and DELETE_CHUNK_AFTER_USE:
                     os.remove(chunk_path)
 
-                # save flat transcript
-                StorageManager.save_async(
-                    os.path.join(project_path, "transcription.txt"),
-                    transcribed_text,
-                    append=True
-                )
+                StorageManager.save_async(transcript_path, transcribed_text, append=True)
 
-                # yield BOTH formats
                 yield {
                     **chunk_data,
-                    "text": transcribed_text,        # for legacy usage
-                    "segments": ui_segments          # <-- frontend uses this
+                    "text": transcribed_text,
+                    "segments": ui_segments
                 }
 
+            # ========== FINALIZATION ==========
             teacher_speaker = None
             if self.speaker_text_len:
                 teacher_speaker = max(self.speaker_text_len, key=self.speaker_text_len.get)
+
+            # rewrite transcription file replacing teacher id → TEACHER
+            if teacher_speaker:
+                raw = StorageManager.read_text_file(transcript_path)
+
+                teacher_transcript_lines = []
+                updated_lines = []
+
+                for line in raw.splitlines():
+                    if line.startswith(f"{teacher_speaker}:"):
+                        updated_lines.append(line.replace(teacher_speaker, "TEACHER", 1))
+                        teacher_transcript_lines.append(
+                            line.replace(teacher_speaker, "TEACHER", 1)
+                        )
+                    else:
+                        updated_lines.append(line)
+
+                StorageManager.save(transcript_path, "\n".join(updated_lines) + "\n", append=False)
+
+                # store teacher-only transcript for summarizer mode
+                StorageManager.save(
+                    os.path.join(project_path, "teacher_transcription.txt"),
+                    "\n".join(teacher_transcript_lines) + "\n",
+                    append=False
+                )
 
             yield {
                 "event": "final",
@@ -160,15 +172,13 @@ class ASRComponent(PipelineComponent):
                 "speaker_text_stats": self.speaker_text_len
             }
 
-
         finally:
             if default_torch_threads is not None:
                 torch.set_num_threads(default_torch_threads)
-                
+
             end_time = time.perf_counter()
             transcription_time = end_time - start_time
 
-            # Save the transcription time in the metrics CSV file
             StorageManager.update_csv(
                 path=os.path.join(project_path, "performance_metrics.csv"),
                 new_data={
@@ -179,4 +189,5 @@ class ASRComponent(PipelineComponent):
 
             logger.info(f"Transcription Complete: {self.session_id}")
 
-            
+
+                
