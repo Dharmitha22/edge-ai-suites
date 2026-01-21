@@ -28,7 +28,7 @@ models:
     temperature: 0.3 # 0.5 default
     use_cache: True
     models_base_path: "models"
-    language: zh # en or zh
+    language: en # en or zh
     mode: dialog   # dialog | teacher | hybrid
     system_prompt: 
       en:
@@ -123,13 +123,13 @@ models:
           - Bullet points only.
           - Do not quote transcript text.
           - Do not add extra headings.
-      zh: 
+      zh:
         Dialog: |
           总结课堂转录内容。
 
-          格式:
-          TEACHER = 教师
-          STUDENT_XX = 学生
+          转录格式:
+          教师 = 教师发言
+          学生_XX = 学生发言
 
           指示:
           - 提供完整的对话摘要。
@@ -137,18 +137,18 @@ models:
           - 包含教师讲解和学生提问。
           - 忽略无意义的填充语或重复内容。
 
-          使用严格如下章节标题输出有效 Markdown:
+          使用以下固定章节标题输出有效 Markdown:
 
-          ## Teacher Summary
+          ## 教师总结
           - ...
 
-          ## Student Questions
+          ## 学生提问
           - ...
 
-          ## Key Takeaways
+          ## 关键要点
           - ...
 
-          ## Session Outline
+          ## 课程结构
           - ...
 
           规则:
@@ -157,7 +157,7 @@ models:
           - 不要添加额外标题。
 
         Teacher: |
-          仅总结转录中 TEACHER（教师）的讲解内容。
+          仅总结转录中 教师 的讲解内容。
 
           指示:
           - 完全忽略学生对话。
@@ -165,28 +165,29 @@ models:
           - 不要编造缺失的内容。
           - 如果某个章节没有内容，写 "None"。
 
-          使用严格如下章节标题输出有效 Markdown:
+          使用以下固定章节标题输出有效 Markdown:
 
-          ## Teacher Summary
+          ## 教师总结
           - ...
 
-          ## Student Questions
+          ## 学生提问
           - None
 
-          ## Key Takeaways
+          ## 关键要点
           - ...
 
-          ## Session Outline
+          ## 课程结构
           - ...
 
           规则:
           - 仅使用项目符号列表。
           - 不要直接引用原始转录文本。
           - 不要添加额外标题。
-          
+
+
         Hybrid: |
-          以 TEACHER（教师）讲解为重点进行总结，
-          并在必要时使用 STUDENT（学生）提问作为上下文补充。
+          以 教师 讲解为重点进行总结，
+          并在必要时使用 学生 提问作为上下文补充。
 
           指示:
           - 教师讲解为主要内容。
@@ -194,24 +195,25 @@ models:
           - 不要编造内容。
           - 忽略填充语或重复内容。
 
-          使用严格如下章节标题输出有效 Markdown:
+          使用以下固定章节标题输出有效 Markdown:
 
-          ## Teacher Summary
+          ## 教师总结
           - ...
 
-          ## Student Questions
+          ## 学生提问
           - ...
 
-          ## Key Takeaways
+          ## 关键要点
           - ...
 
-          ## Session Outline
+          ## 课程结构
           - ...
 
           规则:
           - 仅使用项目符号列表。
           - 不要直接引用原始转录文本。
           - 不要添加额外标题。
+
     model_hub: huggingface # huggingface or modelscope
 
   va:

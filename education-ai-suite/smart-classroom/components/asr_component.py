@@ -16,6 +16,28 @@ ENABLE_DIARIZATION = config.models.asr.diarization
 DELETE_CHUNK_AFTER_USE =  config.pipeline.delete_chunks_after_use
 threads_limit = config.models.asr.threads_limit
 THREADS_LIMIT = threads_limit if threads_limit and threads_limit > 0 else None
+
+
+# ===== Speaker label localization map =====
+
+SPEAKER_LABEL_MAP = {
+    "en": {"teacher": "TEACHER", "student": "STUDENT", "speaker": "SPEAKER"},
+    "zh": {"teacher": "教师", "student": "学生", "speaker": "说话人"},
+}
+
+def get_speaker_labels(lang_code: str):
+    if not lang_code:
+        return SPEAKER_LABEL_MAP["en"]
+    lang = lang_code.lower().split("-")[0]
+    return SPEAKER_LABEL_MAP.get(lang, SPEAKER_LABEL_MAP["en"])
+
+SUMMARIZER_LANG = getattr(config.models.summarizer, "language", "en")
+LABELS = get_speaker_labels(SUMMARIZER_LANG)
+
+LABEL_TEACHER = LABELS["teacher"]
+LABEL_STUDENT = LABELS["student"]
+LABEL_SPEAKER = LABELS["speaker"]
+
 class ASRComponent(PipelineComponent):
 
     _model = None
@@ -86,10 +108,12 @@ class ASRComponent(PipelineComponent):
 
                         mid = (sent["start"] + sent["end"]) / 2.0
 
-                        speaker = "SPEAKER"
+                        speaker = LABEL_SPEAKER
                         for turn in speaker_turns:
                             if turn["start"] <= mid <= turn["end"]:
-                                speaker = turn["speaker"]
+                                raw_spk = turn["speaker"]
+                                if raw_spk.startswith("SPEAKER_"):
+                                    speaker = raw_spk.replace("SPEAKER_", f"{LABEL_SPEAKER}_")
                                 break
 
                         text = sent["text"].strip()
@@ -103,7 +127,7 @@ class ASRComponent(PipelineComponent):
                             "end": end
                         })
 
-                        if speaker != "SPEAKER":
+                        if speaker != LABEL_SPEAKER:
                             self.speaker_text_len[speaker] = (
                                 self.speaker_text_len.get(speaker, 0) + len(text)
                             )
@@ -150,36 +174,37 @@ class ASRComponent(PipelineComponent):
 
                     spk, text = line.split(":", 1)
 
-                    # Assign TEACHER
+                    # Assign teacher
                     if spk == teacher_speaker:
-                        new_spk = "TEACHER"
+                        new_spk = LABEL_TEACHER
                         teacher_transcript_lines.append(f"{new_spk}:{text}")
 
-                    # Assign STUDENT_xx to all other numbered speakers
-                    elif spk.startswith("SPEAKER_"):
-                        new_spk = spk.replace("SPEAKER_", "STUDENT_")
+                    # Numbered speakers → students
+                    elif spk.startswith(f"{LABEL_SPEAKER}_"):
+                        new_spk = spk.replace(f"{LABEL_SPEAKER}_", f"{LABEL_STUDENT}_")
 
-                    # Generic SPEAKER (former UNKNOWN)
-                    elif spk == "SPEAKER":
-                        new_spk = "STUDENT"
+                    # Generic unlabeled speaker
+                    elif spk == LABEL_SPEAKER:
+                        new_spk = LABEL_STUDENT
 
                     else:
                         new_spk = spk
 
                     updated_lines.append(f"{new_spk}:{text}")
 
+                # ✅ Save AFTER loop
                 StorageManager.save(
                     transcript_path,
                     "\n".join(updated_lines) + "\n",
                     append=False
                 )
 
-                # store teacher-only transcript
                 StorageManager.save(
                     os.path.join(project_path, "teacher_transcription.txt"),
                     "\n".join(teacher_transcript_lines) + "\n",
                     append=False
                 )
+
 
             yield {
                 "event": "final",
