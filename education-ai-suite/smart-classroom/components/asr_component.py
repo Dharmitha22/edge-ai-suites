@@ -86,15 +86,11 @@ class ASRComponent(PipelineComponent):
 
                         mid = (sent["start"] + sent["end"]) / 2.0
 
-                        speaker = "UNKNOWN"
+                        speaker = "SPEAKER"
                         for turn in speaker_turns:
                             if turn["start"] <= mid <= turn["end"]:
                                 speaker = turn["speaker"]
                                 break
-
-                        # rename SPEAKER_00 → STUDENT_00
-                        if speaker.startswith("SPEAKER"):
-                            speaker = speaker.replace("SPEAKER", "STUDENT")
 
                         text = sent["text"].strip()
                         start = float(sent["start"])
@@ -107,7 +103,7 @@ class ASRComponent(PipelineComponent):
                             "end": end
                         })
 
-                        if speaker != "UNKNOWN":
+                        if speaker != "SPEAKER":
                             self.speaker_text_len[speaker] = (
                                 self.speaker_text_len.get(speaker, 0) + len(text)
                             )
@@ -141,7 +137,6 @@ class ASRComponent(PipelineComponent):
             if self.speaker_text_len:
                 teacher_speaker = max(self.speaker_text_len, key=self.speaker_text_len.get)
 
-            # rewrite transcription file replacing teacher id → TEACHER
             if teacher_speaker:
                 raw = StorageManager.read_text_file(transcript_path)
 
@@ -149,17 +144,37 @@ class ASRComponent(PipelineComponent):
                 updated_lines = []
 
                 for line in raw.splitlines():
-                    if line.startswith(f"{teacher_speaker}:"):
-                        updated_lines.append(line.replace(teacher_speaker, "TEACHER", 1))
-                        teacher_transcript_lines.append(
-                            line.replace(teacher_speaker, "TEACHER", 1)
-                        )
-                    else:
+                    if ":" not in line:
                         updated_lines.append(line)
+                        continue
 
-                StorageManager.save(transcript_path, "\n".join(updated_lines) + "\n", append=False)
+                    spk, text = line.split(":", 1)
 
-                # store teacher-only transcript for summarizer mode
+                    # Assign TEACHER
+                    if spk == teacher_speaker:
+                        new_spk = "TEACHER"
+                        teacher_transcript_lines.append(f"{new_spk}:{text}")
+
+                    # Assign STUDENT_xx to all other numbered speakers
+                    elif spk.startswith("SPEAKER_"):
+                        new_spk = spk.replace("SPEAKER_", "STUDENT_")
+
+                    # Generic SPEAKER (former UNKNOWN)
+                    elif spk == "SPEAKER":
+                        new_spk = "STUDENT"
+
+                    else:
+                        new_spk = spk
+
+                    updated_lines.append(f"{new_spk}:{text}")
+
+                StorageManager.save(
+                    transcript_path,
+                    "\n".join(updated_lines) + "\n",
+                    append=False
+                )
+
+                # store teacher-only transcript
                 StorageManager.save(
                     os.path.join(project_path, "teacher_transcription.txt"),
                     "\n".join(teacher_transcript_lines) + "\n",

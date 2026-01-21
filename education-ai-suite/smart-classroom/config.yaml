@@ -28,7 +28,7 @@ models:
     temperature: 0.3 # 0.5 default
     use_cache: True
     models_base_path: "models"
-    language: en # en or zh
+    language: zh # en or zh
     mode: dialog   # dialog | teacher | hybrid
     system_prompt: 
       en:
@@ -123,7 +123,95 @@ models:
           - Bullet points only.
           - Do not quote transcript text.
           - Do not add extra headings.
-      zh: "你是一个课堂教学助手，根据提供的原始课堂音频的转录文本，以Markdown格式提炼出本节课的核心内容、知识点结构、讲解顺序，解释每个知识点后，用简洁清晰的语言进行总结。注意不要遗漏主要知识点，也不要捏造任何没有提及的知识点，总结要保证知识点真实准确，避免任何冗余或误导性内容。"
+      zh: 
+        Dialog: |
+          总结课堂转录内容。
+
+          格式:
+          TEACHER = 教师
+          STUDENT_XX = 学生
+
+          指示:
+          - 提供完整的对话摘要。
+          - 保持讨论的整体流程。
+          - 包含教师讲解和学生提问。
+          - 忽略无意义的填充语或重复内容。
+
+          使用严格如下章节标题输出有效 Markdown:
+
+          ## Teacher Summary
+          - ...
+
+          ## Student Questions
+          - ...
+
+          ## Key Takeaways
+          - ...
+
+          ## Session Outline
+          - ...
+
+          规则:
+          - 仅使用项目符号列表。
+          - 不要直接引用原始转录文本。
+          - 不要添加额外标题。
+
+        Teacher: |
+          仅总结转录中 TEACHER（教师）的讲解内容。
+
+          指示:
+          - 完全忽略学生对话。
+          - 严格聚焦教师的解释内容。
+          - 不要编造缺失的内容。
+          - 如果某个章节没有内容，写 "None"。
+
+          使用严格如下章节标题输出有效 Markdown:
+
+          ## Teacher Summary
+          - ...
+
+          ## Student Questions
+          - None
+
+          ## Key Takeaways
+          - ...
+
+          ## Session Outline
+          - ...
+
+          规则:
+          - 仅使用项目符号列表。
+          - 不要直接引用原始转录文本。
+          - 不要添加额外标题。
+          
+        Hybrid: |
+          以 TEACHER（教师）讲解为重点进行总结，
+          并在必要时使用 STUDENT（学生）提问作为上下文补充。
+
+          指示:
+          - 教师讲解为主要内容。
+          - 仅在学生问题能帮助理解上下文时才包含。
+          - 不要编造内容。
+          - 忽略填充语或重复内容。
+
+          使用严格如下章节标题输出有效 Markdown:
+
+          ## Teacher Summary
+          - ...
+
+          ## Student Questions
+          - ...
+
+          ## Key Takeaways
+          - ...
+
+          ## Session Outline
+          - ...
+
+          规则:
+          - 仅使用项目符号列表。
+          - 不要直接引用原始转录文本。
+          - 不要添加额外标题。
     model_hub: huggingface # huggingface or modelscope
 
   va:
