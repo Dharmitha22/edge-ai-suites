@@ -66,7 +66,7 @@ def download_dataset(url, dataset_path):
     if not (dataset_path / "imagenette2-320/val").exists():
         print(f"Downloading dataset from {url}...")
         urllib.request.urlretrieve(url, archive_path)
-        with tarfile.open(tar_path, "r:*") as tar:
+        with tarfile.open(archive_path, "r:gz") as tar:
             safe_extract(tar, dataset_path)     
         os.remove(archive_path)
     return dataset_path
