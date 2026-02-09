@@ -7,10 +7,15 @@ import logging, os
 from utils.session_manager import generate_session_id
 from components.summarizer_component import SummarizerComponent
 from components.mindmap_component import MindmapComponent
+from components.segmentation.content_segmentation import ContentSegmentationComponent
 from utils.runtime_config_loader import RuntimeConfig
 from utils.storage_manager import StorageManager
 from utils.markdown_cleaner import markdown_to_plain
 from monitoring import monitor
+from utils.topic_faiss_indexer import TopicFaissIndexer
+from pathlib import Path
+import json
+
 import time
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,14 @@ class Pipeline:
             )
         
         self.mindmap_component.model = self.summarizer_pipeline[0].summarizer
+
+        self.content_component = ContentSegmentationComponent(
+            self.session_id,
+            temperature=0.2
+        )
+
+        self.content_component.model = self.summarizer_pipeline[0].summarizer
+
 
     def run_transcription(self, input):
         project_config = RuntimeConfig.get_section("Project")
@@ -168,3 +181,72 @@ class Pipeline:
             )
         finally:
             pass
+
+    def run_content_segmentation(self):
+
+        project_config = RuntimeConfig.get_section("Project")
+        session_dir = os.path.join(
+            project_config.get("location"),
+            project_config.get("name"),
+            self.session_id
+        )
+
+        transcription_path = os.path.join(session_dir, "transcription.txt")
+
+        try:
+            transcript_text = StorageManager.read_text_file(transcription_path)
+
+            if not transcript_text:
+                logger.error("Transcription is empty. Cannot generate topic segmentation.")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Transcription is empty. Cannot generate topic segmentation."
+                )
+
+        except FileNotFoundError:
+            logger.error(f"Invalid Session ID: {self.session_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid session id: {self.session_id}, transcription not found."
+            )
+
+        except Exception as e:
+            logger.error(f"Unexpected error while accessing transcription: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An unexpected error occurred while accessing the transcription."
+            )
+
+        try:
+            topic_json = self.content_component.generate_topics(transcript_text)
+
+            topic_path = os.path.join(session_dir, "topics.json")
+            StorageManager.save(topic_path, topic_json, append=False)
+
+
+            # -----------------------------
+            # Build FAISS topic embeddings
+            # -----------------------------
+
+            index_dir = Path(session_dir) / "faiss"
+            indexer = TopicFaissIndexer(index_dir)
+
+            topics = json.loads(topic_json)
+
+            vector_count = indexer.index_topics(
+                session_id=self.session_id,
+                topics=topics,
+                transcript_text=transcript_text
+            )
+
+            logger.info(f"FAISS index built with {vector_count} topic vectors.")
+
+
+            return topic_json
+
+        except Exception as e:
+            logger.error(f"Error during topic segmentation: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error during topic segmentation: {e}"
+            )
