@@ -171,26 +171,7 @@ class ASRComponent(PipelineComponent):
 
             if teacher_speaker:
 
-                # We will rebuild transcript with timestamps
                 raw_segments = []
-
-                # Re-read stored UI segments from processing
-                # Instead, collect them during processing:
-                # So we store segments earlier → let's assume we kept them
-                # But since we already yielded ui_segments per chunk,
-                # we reconstruct from the saved segments in memory.
-
-                # To make it simple: re-run whisper output is not needed.
-                # We stored "segments" in each yielded chunk.
-                # So accumulate segments during loop.
-
-                # Add this at class init:
-                # self.all_segments = []
-
-                # Add inside loop where ui_segments built:
-                # 
-
-                # Now here use self.all_segments
 
                 teacher_lines_with_time = []
                 full_updated_lines = []
