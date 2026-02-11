@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-
-# Copyright (C) 2026 Intel Corporation
-# SPDX-License-Identifier: Apache-2.0
-
 """
 Health check script for AI Route Planner.
 This script checks if the Gradio application is running and responsive.
