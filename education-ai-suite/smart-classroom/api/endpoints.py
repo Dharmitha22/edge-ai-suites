@@ -21,6 +21,7 @@ from utils.audio_util import save_audio_file
 from utils.locks import audio_pipeline_lock, video_analytics_lock
 from components.va.va_pipeline_service import VideoAnalyticsPipelineService, PipelineOptions
 from utils.session_manager import generate_session_id
+from dto.search_dto import SearchRequest
 import logging
 logger = logging.getLogger(__name__)
 
@@ -539,6 +540,32 @@ def content_segmentation(request: SummaryRequest):
         raise HTTPException(
             status_code=500,
             detail=f"content segmentation failed: {e}"
+        )
+
+@router.post("/search-content")
+def search_content(request: SearchRequest):
+
+    pipeline = Pipeline(request.session_id)
+
+    try:
+        results = pipeline.search_content(
+            query=request.query,
+            top_k=request.top_k
+        )
+
+        return {
+            "session_id": request.session_id,
+            "query": request.query,
+            "results": results
+        }
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {e}"
         )
 
 def register_routes(app: FastAPI):

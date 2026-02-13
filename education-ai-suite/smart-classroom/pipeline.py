@@ -183,79 +183,79 @@ class Pipeline:
         finally:
             pass
 
-def run_content_segmentation(self):
+    def run_content_segmentation(self):
 
-    project_config = RuntimeConfig.get_section("Project")
-    session_dir = os.path.join(
-        project_config.get("location"),
-        project_config.get("name"),
-        self.session_id
-    )
+        project_config = RuntimeConfig.get_section("Project")
+        session_dir = os.path.join(
+            project_config.get("location"),
+            project_config.get("name"),
+            self.session_id
+        )
 
-    transcription_path = os.path.join(session_dir, "transcription.txt")
+        transcription_path = os.path.join(session_dir, "transcription.txt")
 
-    try:
-        transcript_text = StorageManager.read_text_file(transcription_path)
+        try:
+            transcript_text = StorageManager.read_text_file(transcription_path)
 
-        if not transcript_text:
-            logger.error("Transcription is empty. Cannot generate topic segmentation.")
+            if not transcript_text:
+                logger.error("Transcription is empty. Cannot generate topic segmentation.")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Transcription is empty. Cannot generate topic segmentation."
+                )
+
+        except FileNotFoundError:
+            logger.error(f"Invalid Session ID: {self.session_id}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Transcription is empty. Cannot generate topic segmentation."
+                detail=f"Invalid session id: {self.session_id}, transcription not found."
             )
 
-    except FileNotFoundError:
-        logger.error(f"Invalid Session ID: {self.session_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid session id: {self.session_id}, transcription not found."
-        )
+        except Exception as e:
+            logger.error(f"Unexpected error while accessing transcription: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An unexpected error occurred while accessing the transcription."
+            )
 
-    except Exception as e:
-        logger.error(f"Unexpected error while accessing transcription: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while accessing the transcription."
-        )
+        try:
+            import json
+            from pathlib import Path
 
-    try:
-        import json
-        from pathlib import Path
+            # 🔹 Generate topics (returns JSON string from LLM)
+            topic_json_str = self.content_component.generate_topics(transcript_text)
 
-        # 🔹 Generate topics (returns JSON string from LLM)
-        topic_json_str = self.content_component.generate_topics(transcript_text)
+            # 🔹 Save raw JSON string
+            topic_path = os.path.join(session_dir, "topics.json")
+            StorageManager.save(topic_path, topic_json_str, append=False)
 
-        # 🔹 Save raw JSON string
-        topic_path = os.path.join(session_dir, "topics.json")
-        StorageManager.save(topic_path, topic_json_str, append=False)
+            # 🔥 Convert to Python object (CRITICAL FIX)
+            topics = json.loads(topic_json_str)
 
-        # 🔥 Convert to Python object (CRITICAL FIX)
-        topics = json.loads(topic_json_str)
+            # -----------------------------
+            # Build FAISS topic embeddings
+            # -----------------------------
 
-        # -----------------------------
-        # Build FAISS topic embeddings
-        # -----------------------------
+            index_dir = Path(session_dir) / "faiss"
+            indexer = TopicFaissIndexer(index_dir)
 
-        index_dir = Path(session_dir) / "faiss"
-        indexer = TopicFaissIndexer(index_dir)
+            vector_count = indexer.index_topics(
+                session_id=self.session_id,
+                topics=topics,
+                transcript_text=transcript_text
+            )
 
-        vector_count = indexer.index_topics(
-            session_id=self.session_id,
-            topics=topics,
-            transcript_text=transcript_text
-        )
+            logger.info(f"FAISS index built with {vector_count} topic vectors.")
 
-        logger.info(f"FAISS index built with {vector_count} topic vectors.")
+            # ✅ Return parsed Python object (not string)
+            return topics
 
-        # ✅ Return parsed Python object (not string)
-        return topics
-
-    except Exception as e:
-        logger.error(f"Error during topic segmentation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during topic segmentation: {e}"
-        )
+        except Exception as e:
+            logger.error(f"Error during topic segmentation: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error during topic segmentation: {e}"
+            )
 
 
     def search_content(self, query: str, top_k: int = 5):
