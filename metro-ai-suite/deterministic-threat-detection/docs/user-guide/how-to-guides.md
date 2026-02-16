@@ -20,7 +20,7 @@ successfully. The guides collected here present more details on the steps in [Ge
 ./how-to-guides/configure-ptp
 ./how-to-guides/configure-moxa-switch
 ./how-to-guides/configure-vlan-on-moxa-switch
-./how-to-guides/configure-vlan-on-all-machines
+./how-to-guides/create-vlan-on-all-machines
 ./how-to-guides/run-rtsp-camera-and-ai-inference
 ./how-to-guides/run-sensor-data-producer
 ./how-to-guides/run-mqtt-aggregator-and-visualization

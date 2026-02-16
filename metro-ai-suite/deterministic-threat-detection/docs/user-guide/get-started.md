@@ -12,13 +12,13 @@ system in action.
 
 ## Network Topology
 
+![TSN Network Topology](./_assets/TSN-Network-Topology.svg)
+
 The experimental setup consists of:
 
 - **2 × [AXIS RTSP Camera P3265-LVE](https://www.axis.com/products/axis-p3265-lve)**
 - **1 × [Moxa Managed Switch TSN-G5000 Series](https://www.moxa.com/getmedia/a0db0ef9-2741-4bad-91c6-1ec1827aca64/moxa-tsn-g5000-series-web-console-manual-v2.3.pdf)**
 - **5 × Arrow Lake Linux Machines with `Intel i226` TSN network cards**
-
-    ![TSN Network Topology](./_assets/TSN-Network-Topology.svg)
 
 ### Logical Roles
 
