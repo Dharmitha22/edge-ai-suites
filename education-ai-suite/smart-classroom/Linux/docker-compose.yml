@@ -1,0 +1,111 @@
+# Smart Classroom — containerized stack (Linux)
+#
+# Skeleton phase: only the `app` service (React SPA + FastAPI /health skeleton)
+# is active and published on :8000. The OVMS, model-downloader, content-search,
+# and performance-tools services below are scaffolded as commented placeholders
+# — uncomment and complete each one as its image is built.
+#
+# See docs/phase-0-containerization-plan.md for the full target topology.
+#
+# Usage:
+#   docker compose up -d --build          # CPU-only, UI skeleton
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Then open http://localhost:8000/
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+        # Forward the host proxy (if any) so npm/pip can fetch packages.
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: smart-classroom-app:local
+    container_name: smart-classroom-app
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks: [smart-classroom]
+    # When the real backend is layered in, add depends_on health gates + volumes:
+    # depends_on:
+    #   ovms: { condition: service_healthy }
+    #   content-search: { condition: service_healthy }
+    # environment:
+    #   - SERVING_BASE_URL=http://ovms:9000
+    #   - CONTENT_SEARCH_HOST=content-search
+    # volumes:
+    #   - storage:/app/storage
+    #   - model-cache:/app/models:ro
+
+  # ===========================================================================
+  # SKELETON PLACEHOLDERS — not yet built. Uncomment + complete per component.
+  # ===========================================================================
+
+  # model-downloader:   # one-shot provisioning init job → writes IR to model-cache
+  #   build:
+  #     context: .
+  #     dockerfile: docker/model-downloader.Dockerfile
+  #   environment:
+  #     - HF_TOKEN=${HF_TOKEN:-}
+  #     - MODEL_HUB=${MODEL_HUB:-huggingface}
+  #   volumes:
+  #     - model-cache:/app/models
+  #   restart: "no"
+  #   networks: [smart-classroom]
+
+  # ovms:               # OpenVINO Model Server (:9000, internal only)
+  #   image: openvino/model_server:2026.3
+  #   command: >-
+  #     --rest_port 9000 --config_path /models/ovms/config.json
+  #   volumes:
+  #     - model-cache:/models:ro
+  #   depends_on:
+  #     model-downloader: { condition: service_completed_successfully }
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/v2/health/ready"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 12
+  #   restart: unless-stopped
+  #   networks: [smart-classroom]
+
+  # content-search:     # RAG / multimodal backend (:9011, internal only)
+  #   build:
+  #     context: .
+  #     dockerfile: docker/content-search.Dockerfile
+  #   depends_on:
+  #     ovms: { condition: service_healthy }
+  #   restart: unless-stopped
+  #   networks: [smart-classroom]
+
+  # performance-tools:  # telemetry sidecar → shared metrics volume
+  #   build:
+  #     context: .
+  #     dockerfile: docker/performance-tools.Dockerfile
+  #   volumes:
+  #     - metrics:/metrics
+  #   restart: unless-stopped
+  #   networks: [smart-classroom]
+
+networks:
+  smart-classroom:
+    driver: bridge
+
+volumes:
+  model-cache:
+  storage:
+  metrics:

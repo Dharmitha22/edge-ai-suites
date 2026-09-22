@@ -1,0 +1,35 @@
+# GPU / NPU passthrough override.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Set RENDER_GID in .env so the container user can access /dev/dri:
+#   echo "RENDER_GID=$(getent group render | cut -d: -f3)" >> .env
+#
+# The UI skeleton does not need a GPU, so the `app` device mapping is left
+# commented. Uncomment it (and the backend services) once the real, GPU-backed
+# workloads are layered into the image.
+
+services:
+  # app:
+  #   devices:
+  #     - "/dev/dri:/dev/dri"
+  #   group_add:
+  #     - "${RENDER_GID}"
+
+  # ovms:
+  #   devices:
+  #     - "/dev/dri:/dev/dri"
+  #   group_add:
+  #     - "${RENDER_GID}"
+
+  # performance-tools:
+  #   devices:
+  #     - "/dev/dri:/dev/dri"
+  #   group_add:
+  #     - "${RENDER_GID}"
+
+  # Placeholder so this override file is valid on its own during the skeleton
+  # phase. Remove once a real service above is uncommented.
+  app:
+    profiles: []
