@@ -26,6 +26,10 @@ monitoring/logs/
 monitoring/executionlogs/
 *.log
 
+# metrics-collector builds from this directly (context: performance-tools);
+# the app image never needs it.
+performance-tools/
+
 # Compose / env files
 docker-compose*.yml
 .env

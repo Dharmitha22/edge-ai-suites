@@ -133,31 +133,38 @@ def format_size_gb(size_bytes: int, is_storage: bool = False) -> str:
 
 
 def get_platform_and_model_info():
-    info = {}
-    
-    #Processor
-    try:
-       info['Processor'] = cpuinfo.get_cpu_info()['brand_raw']
-    except Exception :
-        info['Processor'] = f"Intel Processor"
+    # Prefer the metrics-collector sidecar (performance-tools-based) for the
+    # hardware summary, so this stays a single source of truth with the
+    # /metrics dashboard. Fall back to local detection if the sidecar isn't
+    # up (e.g. running main.py outside docker-compose).
+    from monitoring.monitor import get_platform_info as get_pt_platform_info
+    info = get_pt_platform_info()
 
-    # Memory
-    try:
-        mem = psutil.virtual_memory()
-        info['Memory'] = format_size_gb(mem.total)
-    except Exception:
-        info['Memory']="--"
-    
-    #storage
-    try:
-        disk = shutil.disk_usage("/")
-        info['Storage'] = format_size_gb(disk.total, is_storage=True)
-    except Exception:
-        info['Storage']='--'
-    
-    # GPU/NPU Info
-    info['iGPU'] = get_intel_igpu()
-    info['NPU'] = detect_intel_npu()
+    if not info:
+        info = {}
+        # Processor
+        try:
+            info['Processor'] = cpuinfo.get_cpu_info()['brand_raw']
+        except Exception:
+            info['Processor'] = f"Intel Processor"
+
+        # Memory
+        try:
+            mem = psutil.virtual_memory()
+            info['Memory'] = format_size_gb(mem.total)
+        except Exception:
+            info['Memory'] = "--"
+
+        # storage
+        try:
+            disk = shutil.disk_usage("/")
+            info['Storage'] = format_size_gb(disk.total, is_storage=True)
+        except Exception:
+            info['Storage'] = '--'
+
+        # GPU/NPU Info
+        info['iGPU'] = get_intel_igpu()
+        info['NPU'] = detect_intel_npu()
 
     # Model Info 
     try:

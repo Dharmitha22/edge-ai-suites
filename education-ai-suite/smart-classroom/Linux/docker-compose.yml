@@ -1,9 +1,10 @@
 # Smart Classroom — containerized stack (Linux)
 #
-# Skeleton phase: only the `app` service (React SPA + FastAPI /health skeleton)
-# is active and published on :8000. The OVMS, model-downloader, content-search,
-# and performance-tools services below are scaffolded as commented placeholders
-# — uncomment and complete each one as its image is built.
+# Skeleton phase: the `app` service (React SPA + FastAPI /health skeleton) and
+# the `metrics-collector` telemetry sidecar (live CPU/GPU/NPU/memory/power for
+# the Resource Utilization dashboard) are active. The OVMS, model-downloader,
+# and content-search services below are still scaffolded as commented
+# placeholders — uncomment and complete each one as its image is built.
 #
 # See docs/phase-0-containerization-plan.md for the full target topology.
 #
@@ -11,7 +12,7 @@
 #   docker compose up -d --build          # CPU-only, UI skeleton
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 #
-# Then open http://localhost:8000/
+# Then open http://localhost:8000/ and curl http://localhost:9100/metrics
 
 services:
   app:
@@ -40,16 +41,72 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks: [smart-classroom]
-    # When the real backend is layered in, add depends_on health gates + volumes:
+    depends_on:
+      metrics-collector: { condition: service_healthy }
+    environment:
+      - METRICS_COLLECTOR_URL=http://metrics-collector:9000
+    # When the rest of the real backend is layered in (main.py instead of
+    # skeleton_server.py: OVMS, content-search), extend the block above:
     # depends_on:
     #   ovms: { condition: service_healthy }
     #   content-search: { condition: service_healthy }
+    #   metrics-collector: { condition: service_healthy }
     # environment:
     #   - SERVING_BASE_URL=http://ovms:9000
     #   - CONTENT_SEARCH_HOST=content-search
+    #   - METRICS_COLLECTOR_URL=http://metrics-collector:9000
     # volumes:
     #   - storage:/app/storage
     #   - model-cache:/app/models:ro
+
+  metrics-collector:   # telemetry sidecar: CPU/GPU/NPU/memory/power -> /metrics, /platform-info
+    # live-metrics (the /metrics, /platform-info HTTP API) was only just
+    # merged into performance-tools and isn't in any published
+    # intel/retail-benchmark tag yet, so this builds from the vendored
+    # performance-tools/ submodule (git submodule update --init) instead of
+    # pulling a registry image. Once a tagged release with live-metrics
+    # exists, this can switch back to `image: intel/retail-benchmark:<tag>`
+    # with no build step (see performance-tools/docker/docker-compose-reg.yaml
+    # for that pattern).
+    build:
+      context: performance-tools
+      dockerfile: docker/Dockerfile
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: smart-classroom-metrics-collector:local
+    container_name: smart-classroom-metrics-collector
+    # privileged + host /proc,/sys are required by sar/free/qmassa/PCM inside
+    # the performance-tools image; this does not require
+    # network_mode: host, so the container stays reachable at the DNS name
+    # "metrics-collector" from the app service on the bridge network below.
+    privileged: true
+    environment:
+      - RESULTS_DIR=/tmp/results
+      - NPU_LOG=/tmp/results/npu_usage.csv
+      - METRICS_HTTP_PORT=9000
+    volumes:
+      - metrics:/tmp/results
+      - /sys:/sys:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /sys/class/drm:/sys/class/drm:ro
+    ports:
+      # Host-published so `curl http://localhost:9100/metrics` works for
+      # manual verification without exec-ing into the container.
+      - "9100:9000"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9000/health').status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks: [smart-classroom]
 
   # ===========================================================================
   # SKELETON PLACEHOLDERS — not yet built. Uncomment + complete per component.
@@ -89,15 +146,6 @@ services:
   #     dockerfile: docker/content-search.Dockerfile
   #   depends_on:
   #     ovms: { condition: service_healthy }
-  #   restart: unless-stopped
-  #   networks: [smart-classroom]
-
-  # performance-tools:  # telemetry sidecar → shared metrics volume
-  #   build:
-  #     context: .
-  #     dockerfile: docker/performance-tools.Dockerfile
-  #   volumes:
-  #     - metrics:/metrics
   #   restart: unless-stopped
   #   networks: [smart-classroom]
 

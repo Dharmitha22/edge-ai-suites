@@ -56,7 +56,8 @@ ARG NO_PROXY=""
 RUN HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" NO_PROXY="$NO_PROXY" \
     pip install --no-cache-dir \
         "fastapi==0.121.3" \
-        "uvicorn==0.38.0"
+        "uvicorn==0.38.0" \
+        "httpx>=0.27,<1.0"
 
 # Non-root runtime user.
 RUN useradd --create-home --uid 10001 app
@@ -64,6 +65,7 @@ WORKDIR /app
 
 # Skeleton server + built SPA (served from /app/ui/dist).
 COPY docker/skeleton_server.py ./skeleton_server.py
+COPY monitoring/ ./monitoring/
 COPY --from=ui-builder /ui/dist ./ui/dist
 
 RUN chown -R app:app /app
