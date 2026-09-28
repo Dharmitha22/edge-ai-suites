@@ -10,17 +10,6 @@ import { useResourceMetricTimer } from '../../hooks/useResourceMetricTimer';
 import MonitoringPausedBanner from '../common/MonitoringPausedBanner';
 Chart.register(...registerables);
 
-type GPUMetricKey = 'shared_memory_mb' | '3D_utilization_percent' | 'VideoDecode_utilization_percent' | 'VideoProcessing_utilization_percent' | 'Compute_utilization_percent';
-interface GPUMetricConfig {
-  index: number;
-  color: string;
-  label: string;
-  yAxis: 'y' | 'y1';
-  shortLabel: string;
-}
-
-type GPUMetricsConfig = Record<GPUMetricKey, GPUMetricConfig>;
-
 interface ResourceUtilizationAccordionProps {
   activeScreen?: 'main' | 'content-search' | 'grading';
 }
@@ -46,67 +35,6 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
       setResourceData(resourceMetrics);
     }
   }, [resourceMetrics, lastUpdated]);
-
-  const gpuMetricsConfig: GPUMetricsConfig = {
-    shared_memory_mb: { 
-      index: 3, 
-      color: 'rgba(255, 99, 132, 1)', 
-      label: 'Shared Memory (GB)', 
-      yAxis: 'y1', 
-      shortLabel: 'Shared Mem' 
-    },
-    '3D_utilization_percent': { 
-      index: 4, 
-      color: 'rgba(54, 162, 235, 1)', 
-      label: '3D Utilization (%)', 
-      yAxis: 'y', 
-      shortLabel: '3D' 
-    },
-    VideoDecode_utilization_percent: { 
-      index: 6, 
-      color: 'rgba(255, 206, 86, 1)', 
-      label: 'Video Decode (%)', 
-      yAxis: 'y', 
-      shortLabel: 'Vid Dec' 
-    },
-    VideoProcessing_utilization_percent: { 
-      index: 7, 
-      color: 'rgba(75, 192, 192, 1)', 
-      label: 'Video Processing (%)', 
-      yAxis: 'y', 
-      shortLabel: 'Vid Proc' 
-    },
-    Compute_utilization_percent: { 
-      index: 9, 
-      color: 'rgba(153, 102, 255, 1)', 
-      label: 'Compute Utilization (%)', 
-      yAxis: 'y', 
-      shortLabel: 'Compute' 
-    },
-  };
-
-  const createChartData = (data: any[], metricConfigs: Record<string, GPUMetricConfig>) => {
-    if (!data || data.length === 0) return { labels: [], datasets: [] };
-
-    const labels = data.map((item: any) => item[0] ? new Date(item[0]).toLocaleTimeString() : '');
-
-    const datasets = Object.entries(metricConfigs).map(([key, config]) => ({
-      label: config.shortLabel,
-      data: data.map((item: any) => {
-        let value = item[config.index] || 0;
-        if (key === 'shared_memory_mb') {
-          value = value / 1024; // Convert MB to GB
-        }
-        return value;
-      }),
-      borderColor: config.color,
-      backgroundColor: config.color.replace('1)', '0.2)'),
-      fill: false,
-      yAxisID: config.yAxis,
-    }));
-
-    return { labels, datasets };
-  };
 
   const createSimpleChartData = (data: any[], label: string, color: string) => {
     if (!data || data.length === 0) return { labels: [], datasets: [] };
@@ -152,56 +80,6 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
     },
   };
 
-
-  const gpuChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      y: {
-        type: 'linear' as const,
-        display: true,
-        position: 'left' as const,
-        beginAtZero: true,
-        min: 0,
-        // No hard max — auto-scales above 100% when GPU metrics exceed the typical range
-        title: {
-          display: true,
-          text: 'Utilization (%)'
-        },
-        ticks: {
-          stepSize: 20,
-          callback: function(value: any) {
-            return value;
-          }
-        }
-      },
-      y1: {
-        type: 'linear' as const,
-        display: true,
-        position: 'right' as const,
-        beginAtZero: true,
-        min: 0,
-        title: {
-          display: true,
-          text: 'Shared Mem'
-        },
-        grid: {
-          drawOnChartArea: false,
-        },
-        ticks: {
-          callback: function(value: any) {
-            return value + ' GB';
-          }
-        }
-      },
-    },
-    plugins: {
-      legend: {
-        display: true,
-        position: 'top' as const,
-      },
-    },
-  };
 
   const powerChartOptions = {
     responsive: true,
@@ -265,8 +143,8 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
               <div style={{ height: '200px' }}>
                 {resourceData.gpu_utilization && resourceData.gpu_utilization.length > 0 ? (
                   <Line 
-                    data={createChartData(resourceData.gpu_utilization, gpuMetricsConfig)} 
-                    options={gpuChartOptions} 
+                    data={createSimpleChartData(resourceData.gpu_utilization, 'GPU %', 'rgba(54, 162, 235, 1)')} 
+                    options={percentageChartOptions} 
                   />
                 ) : (
                   <p>{t('accordion.noData') || "No data available"}</p>
