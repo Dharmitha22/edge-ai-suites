@@ -3,11 +3,13 @@
 #
 # Lightweight UI-serving skeleton for the Smart Classroom container.
 #
-# Serves the built React SPA (``ui/dist``) plus a ``/health`` route WITHOUT
-# importing the heavy model stack (torch/openvino/paddleocr/...). It exists for
-# the containerization skeleton phase, where the OVMS, model-downloader, and
-# performance-tools containers are not yet built, so the app image can boot and
-# render the UI on its own.
+# Serves the built React SPA (``ui/dist``) plus ``/health``, ``/metrics``, and
+# ``/platform-info`` (proxied straight to the metrics-collector sidecar via
+# monitoring/monitor.py) WITHOUT importing the heavy model stack
+# (torch/openvino/paddleocr/...). It exists for the containerization skeleton
+# phase, where the OVMS, model-downloader, and content-search containers are
+# not yet built, so the app image can boot, render the UI, and show the live
+# Resource Utilization dashboard on its own.
 #
 # Once the full backend image is wired up, swap the container CMD from
 # ``uvicorn skeleton_server:app`` to ``uvicorn main:app`` and drop this module
@@ -20,6 +22,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse, JSONResponse
+
+from monitoring.monitor import get_metrics, get_platform_info
 
 # Directory holding the Vite build. Defaults to ``<this dir>/ui/dist`` so it
 # matches the layout baked into the image; override with ``UI_DIST_DIR``.
@@ -42,6 +46,27 @@ app.add_middleware(
 async def health() -> JSONResponse:
     """Backend liveness probe the SPA pings at ``/health``."""
     return JSONResponse({"status": "ok", "mode": "ui-skeleton"})
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> JSONResponse:
+    """Live Resource Utilization dashboard data, proxied from metrics-collector.
+
+    Session-less here (unlike the full backend's /metrics): the sidecar's
+    collectors run continuously regardless of session state, so there is no
+    session-scoped variant to serve in the skeleton phase.
+    """
+    return JSONResponse(get_metrics())
+
+
+@app.get("/platform-info", include_in_schema=False)
+async def platform_info() -> JSONResponse:
+    """Hardware summary, proxied from metrics-collector.
+
+    Skips the full backend's asr_model/summarizer_model merge (utils/platform_info.py)
+    since no models are loaded in the skeleton phase.
+    """
+    return JSONResponse(get_platform_info())
 
 
 def _mount_spa() -> None:

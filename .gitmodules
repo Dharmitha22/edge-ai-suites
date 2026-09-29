@@ -106,3 +106,6 @@
 	url = https://github.com/hku-mars/FAST_LIO.git
 	branch = ROS2
 	shallow = true
+[submodule "education-ai-suite/smart-classroom/Linux/performance-tools"]
+	path = education-ai-suite/smart-classroom/Linux/performance-tools
+	url = https://github.com/intel-retail/performance-tools.git
