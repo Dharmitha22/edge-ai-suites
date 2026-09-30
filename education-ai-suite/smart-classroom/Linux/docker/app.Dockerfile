@@ -81,7 +81,8 @@ COPY --from=ui-builder /ui/dist ./ui/dist
 # proxy, and the config the server reads at startup. Only the modules the
 # skeleton server imports are needed at runtime; the rest stay out of the image.
 COPY utils/ ./utils/
-COPY components/__init__.py components/asr_remote.py ./components/
+# components/ is a namespace package (no __init__.py in the repo); copy just the module.
+COPY components/asr_remote.py ./components/
 COPY api/__init__.py api/proxy.py ./api/
 COPY config.yaml runtime_config.yaml ./
 

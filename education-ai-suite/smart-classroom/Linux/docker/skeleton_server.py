@@ -152,6 +152,56 @@ try:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No transcript segments provided.")
         return persist_live_segments(request.session_id, request.segments, request.language)
 
+    @app.get("/features", include_in_schema=False)
+    def features() -> JSONResponse:
+        """Advertise the transcription (audio) feature to the SPA.
+
+        The skeleton only serves ASR (delegated to the audio-analyzer); the heavy
+        features (summary/mindmap/video-analytics/OCR) need the full backend, so
+        they are intentionally omitted here. The SPA's feature guard reads this to
+        enable the recording/upload → transcribe path.
+        """
+        from utils.config_loader import config
+
+        asr_flag = getattr(getattr(config, "features", None), "asr", True)
+        if not bool(getattr(asr_flag, "enabled", asr_flag)):
+            return JSONResponse({"features": []})
+        try:
+            chunking = bool(config.audio_preprocessing.chunking)
+        except Exception:
+            chunking = False
+        try:
+            diarization = bool(config.models.asr.diarization)
+        except Exception:
+            diarization = False
+        return JSONResponse({"features": [{
+            "id": "asr",
+            "chunking": chunking,
+            "diarization": diarization,
+            "endpoints": {"upload_audio": "/upload-audio", "transcribe": "/transcribe"},
+            "dependency": [],
+            "requires": [],
+        }]})
+
+    @app.get("/create-session", include_in_schema=False)
+    def create_session() -> JSONResponse:
+        """Mint a session id for the SPA's upload/record → transcribe flow."""
+        return JSONResponse({"session-id": generate_session_id()})
+
+    @app.post("/start-monitoring", include_in_schema=False)
+    def start_monitoring() -> JSONResponse:
+        """No-op: the metrics-collector sidecar is not part of the skeleton."""
+        return JSONResponse({"status": "disabled", "message": "Monitoring is not available in the UI skeleton."})
+
+    @app.post("/stop-monitoring", include_in_schema=False)
+    def stop_monitoring() -> JSONResponse:
+        return JSONResponse({"status": "disabled", "message": "Monitoring is not available in the UI skeleton."})
+
+    @app.post("/store-audio-duration", include_in_schema=False)
+    def store_audio_duration() -> JSONResponse:
+        """Accept-and-ignore: duration tracking lives in the full backend."""
+        return JSONResponse({"status": "ok", "message": "Audio duration not tracked in the UI skeleton."})
+
     # Browser live-mic: bridge the /v1/realtime WebSocket to the audio-analyzer.
     register_realtime_ws_proxy(app)
 except Exception as _exc:  # noqa: BLE001 - keep UI + health serving even if ASR wiring fails

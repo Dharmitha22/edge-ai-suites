@@ -44,7 +44,8 @@ services:
     restart: unless-stopped
     networks: [smart-classroom]
     depends_on:
-      metrics-collector: { condition: service_healthy }
+      # metrics-collector disabled by default (resource dashboard; not needed for ASR).
+      # Re-enable with: docker compose --profile dashboard up -d --build
       audio-analyzer: { condition: service_started }
     environment:
       - METRICS_COLLECTOR_URL=http://metrics-collector:9000
@@ -64,6 +65,10 @@ services:
     #   - model-cache:/app/models:ro
 
   metrics-collector:   # telemetry sidecar: CPU/GPU/NPU/memory/power -> /metrics, /platform-info
+    # Opt-in: excluded from the default `docker compose up`. Enable it with
+    # `docker compose --profile dashboard up -d --build` (requires the
+    # performance-tools submodule to be initialised for the build context).
+    profiles: ["dashboard"]
     # live-metrics (the /metrics, /platform-info HTTP API) isn't in any
     # published intel/retail-benchmark tag yet, so this builds from the
     # vendored performance-tools/ submodule (git submodule update --init)
