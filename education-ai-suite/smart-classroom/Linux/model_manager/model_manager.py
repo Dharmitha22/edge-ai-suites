@@ -22,8 +22,6 @@ class ModelManager:
                 return
             self._ocr_handler = None
             self._ocr_lock = Lock()
-            self._asr_handler = None
-            self._asr_lock = Lock()
             self._text_gen_handler = None
             self._text_gen_lock = Lock()
             self._initialized = True
@@ -44,15 +42,16 @@ class ModelManager:
         raise NotImplementedError
 
     def asr(self):
-        """Return the AsrHandler backed by the configured processor."""
-        return self._get_asr_handler()
+        """In-process ASR is retired; transcription is served by the
+        audio-analyzer microservice (see utils.audio_analyzer_client)."""
+        raise NotImplementedError(
+            "In-process ASR has been retired; use the audio-analyzer microservice."
+        )
 
     def warmup(self, capabilities: list[str]) -> None:
         for capability in capabilities or []:
             if capability == "ocr":
                 self._get_ocr_handler().load()
-            elif capability == "asr":
-                self._get_asr_handler().load()
             elif capability == "text_gen":
                 self._get_text_gen_handler().load()
 
@@ -68,16 +67,19 @@ class ModelManager:
         if h and h.loaded:
             ocr_health["memory"] = h.memory_stats()
 
-        a = self._asr_handler
+        # ASR runs out-of-process in the audio-analyzer microservice.
+        try:
+            from utils.audio_analyzer_client import AudioAnalyzerClient
+            reachable = AudioAnalyzerClient().health()
+        except Exception:
+            reachable = False
         asr_health = {
-            "state": a.state.value if a else "unloaded",
-            "loaded": a.loaded if a else False,
-            "provider": a.provider if a else None,
-            "device": a.device if a else None,
-            "max_concurrency": a.max_concurrency if a else 1,
+            "state": "external" if reachable else "unavailable",
+            "loaded": reachable,
+            "provider": "audio-analyzer",
+            "device": None,
+            "max_concurrency": None,
         }
-        if a and a.loaded:
-            asr_health["memory"] = a.memory_stats()
 
         t = self._text_gen_handler
         text_gen_health = {
@@ -98,11 +100,6 @@ class ModelManager:
                 self._ocr_handler.shutdown()
             self._ocr_handler = None
 
-        with self._asr_lock:
-            if self._asr_handler is not None:
-                self._asr_handler.shutdown()
-            self._asr_handler = None
-
         with self._text_gen_lock:
             if self._text_gen_handler is not None:
                 self._text_gen_handler.shutdown()
@@ -116,15 +113,6 @@ class ModelManager:
                 from components.ocr.ocr_handle import OcrHandler
                 self._ocr_handler = OcrHandler()
         return self._ocr_handler
-
-    def _get_asr_handler(self):
-        if self._asr_handler is not None:
-            return self._asr_handler
-        with self._asr_lock:
-            if self._asr_handler is None:
-                from components.asr.asr_handle import AsrHandler
-                self._asr_handler = AsrHandler()
-        return self._asr_handler
 
     def _get_text_gen_handler(self):
         if self._text_gen_handler is not None:

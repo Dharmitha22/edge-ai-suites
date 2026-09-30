@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import NotificationsDisplay from '../Display/NotificationsDisplay';
 import ProjectNameDisplay from '../Display/ProjectNameDisplay';
 import '../../assets/css/HeaderBar.css';
@@ -29,6 +29,7 @@ import {
   setAudioStatus,
   setVideoStatus,
   startTranscription,
+  transcriptionComplete,
   setMonitoringActive,
   setUploadedVideoFiles,
   setHasUploadedVideoFiles,
@@ -38,13 +39,13 @@ import {
   setBackCamera,
   setBoardCamera,
 } from '../../redux/slices/uiSlice';
-import { resetTranscript } from '../../redux/slices/transcriptSlice';
+import { resetTranscript, appendTranscriptChunk, finishTranscript, updateSpeakerStats, setFinalTranscript } from '../../redux/slices/transcriptSlice';
 import { resetSummary } from '../../redux/slices/summarySlice';
 import { clearMindmap } from '../../redux/slices/mindmapSlice';
 import { useTranslation } from 'react-i18next';
-import { 
-  stopMicrophone, 
+import {
   getAudioDevices,
+  persistLiveTranscript,
   startVideoAnalytics,
   stopVideoAnalytics,
   createSession,
@@ -54,6 +55,7 @@ import {
   checkRecordedVideos,
 } from '../../services/api';
 import Toast from '../common/Toast';
+import { RealtimeMicSession } from '../../services/realtimeMic';
 import UploadFilesModal from '../Modals/UploadFilesModal';
 import StartRecordingModal from '../Modals/StartRecordingModal';
 import type { CameraUrls } from '../../services/cameraStorage';
@@ -88,6 +90,11 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
   const monitoringActive = useAppSelector((s) => s.ui.monitoringActive);
   const dispatch = useAppDispatch();
+  // Browser live-microphone capture (streams to the audio-analyzer over the
+  // /v1/realtime WebSocket); replaces the retired server-side dshow recording.
+  const micSessionRef = useRef<RealtimeMicSession | null>(null);
+  const liveSegmentsRef = useRef<Array<{ speaker: string; text: string; start: number; end: number }>>([]);
+  const recordStartMsRef = useRef<number>(0);
   const summaryEnabled = useAppSelector((s) => s.ui.summaryEnabled);
   const summaryLoading = useAppSelector((s) => s.ui.summaryLoading);
   const mindmapEnabled = useAppSelector((s) => s.ui.mindmapEnabled);
@@ -597,6 +604,30 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
       if (withMic) {
         dispatch(setUploadedAudioPath('MICROPHONE'));
         dispatch(startTranscription());
+        liveSegmentsRef.current = [];
+        recordStartMsRef.current = Date.now();
+        try {
+          const micSession = new RealtimeMicSession({
+            microphone: settings.microphone,
+            sessionId: sharedSessionId,
+            onCompleted: (text) => {
+              const trimmed = text.trim();
+              if (!trimmed) return;
+              const end = (Date.now() - recordStartMsRef.current) / 1000;
+              const prev = liveSegmentsRef.current[liveSegmentsRef.current.length - 1];
+              const start = prev ? prev.end : Math.max(0, end - 1);
+              const seg = { speaker: 'TEACHER', text: trimmed, start, end };
+              liveSegmentsRef.current.push(seg);
+              dispatch(appendTranscriptChunk({ segments: [seg], end_time: end }));
+            },
+            onError: (e) => console.error('🎙️ Live mic error:', e),
+          });
+          micSessionRef.current = micSession;
+          await micSession.start();
+        } catch (micErr) {
+          console.error('🎙️ Failed to start browser microphone capture:', micErr);
+          setErrorMsg(t('errors.failedToStartRecording'));
+        }
         console.log('🎙️ Microphone recording started - transcription will begin automatically');
       } else {
         console.log('🎙️ Not recording audio this session - skipping microphone');
@@ -651,8 +682,23 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
 
       if (sessionId && wasRecordingAudio) {
         console.log('🎙️ Stopping microphone recording...');
-        const result = await stopMicrophone(sessionId);
-        console.log('🛑 Microphone stopped:', result);
+        if (micSessionRef.current) {
+          await micSessionRef.current.stop();
+          micSessionRef.current = null;
+        }
+        // Give the final utterance a moment to arrive over the socket.
+        await new Promise((r) => setTimeout(r, 600));
+        try {
+          if (liveSegmentsRef.current.length > 0) {
+            const result = await persistLiveTranscript(sessionId, liveSegmentsRef.current);
+            if (result?.speaker_text_stats) dispatch(updateSpeakerStats(result.speaker_text_stats));
+            if (result?.teacher_speaker) dispatch(setFinalTranscript(result as any));
+          }
+        } catch (persistErr) {
+          console.error('🎙️ Failed to persist live transcript:', persistErr);
+        }
+        dispatch(finishTranscript());
+        dispatch(transcriptionComplete({ enableSummary: featureGuard.hasFeature('summary') }));
         console.log('🎙️ Audio processing may continue (transcription → summary → mindmap)');
       } else if (!hasAudioDevices) {
         console.log('🎙️ No audio devices - preserving audio status as no-devices');

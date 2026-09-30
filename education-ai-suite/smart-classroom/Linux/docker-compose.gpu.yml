@@ -32,6 +32,16 @@ services:
     group_add:
       - "${RENDER_GID}"
 
+  # ASR microservice: map GPU (/dev/dri) and NPU (/dev/accel) so the audio
+  # analyzer can run Whisper/diarization on GPU or NPU when its config selects
+  # a non-CPU device (config.models.asr.device).
+  audio-analyzer:
+    devices:
+      - "/dev/dri:/dev/dri"
+      - "/dev/accel:/dev/accel"
+    group_add:
+      - "${RENDER_GID}"
+
   # Placeholder so this override file is valid on its own during the skeleton
   # phase. Remove once a real service above is uncommented.
   app:

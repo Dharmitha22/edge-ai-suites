@@ -1,4 +1,5 @@
 import type { StreamEvent, StreamOptions } from './streamSimulator';
+import { listBrowserMicrophones } from './realtimeMic';
 import { store } from "../redux/store";
 import {
   setVideoStatus,
@@ -820,70 +821,49 @@ export async function getPlatformInfo(): Promise<any> {
 }
 
 export async function getAudioDevices(): Promise<string[]> {
-  return safeApiCall(async () => {
-    const res = await fetch(`${BASE_URL}/devices`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`Failed to fetch audio devices: ${res.status}`);
-    const data = await res.json();
-    return data.devices || [];
-  });
+  // Browser-based enumeration. The backend no longer captures the microphone;
+  // live audio is streamed from the browser to the audio-analyzer over the
+  // /v1/realtime WebSocket, so mic devices are read via the Web MediaDevices API.
+  try {
+    const mics = await listBrowserMicrophones();
+    return mics.map((m, i) => m.label || `Microphone ${i + 1}`);
+  } catch (error) {
+    console.error('Failed to enumerate microphones:', error);
+    return [];
+  }
 }
 
-export async function stopMicrophone(sessionId: string): Promise<{ status: string; message: string }> {
+export async function stopMicrophone(_sessionId: string): Promise<{ status: string; message: string }> {
+  // Live mic runs in the browser (RealtimeMicSession); there is nothing to stop
+  // server-side. Kept for call-site compatibility.
+  return { status: 'stopped', message: 'Microphone stopped (browser capture).' };
+}
+
+export interface LiveTranscriptSegment {
+  speaker?: string;
+  text: string;
+  start?: number;
+  end?: number;
+  is_primary?: boolean;
+}
+
+// Persist a browser live-mic transcript into the session so the downstream
+// stages (summary -> mindmap -> segmentation -> report) can read it, exactly
+// like the file-upload path does.
+export async function persistLiveTranscript(
+  sessionId: string,
+  segments: LiveTranscriptSegment[],
+  language?: string,
+): Promise<{ teacher_speaker: string | null; speaker_text_stats: Record<string, number> }> {
   return safeApiCall(async () => {
-    const res = await fetch(`${BASE_URL}/stop-mic?session_id=${sessionId}`, {
+    const res = await fetch(`${BASE_URL}/live-transcript`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, segments, language }),
     });
-    if (!res.ok) throw new Error(`Failed to stop microphone: ${res.status}`);
-    return await res.json();
+    if (!res.ok) throw new Error(await errorDetail(res, `Failed to persist live transcript (${res.status})`));
+    return res.json();
   });
-}
-
-export async function startMicrophone(sessionId: string): Promise<{ status: string; message: string }> {
-  const res = await fetch(`${BASE_URL}/transcribe`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "x-session-id": sessionId, // Use provided session ID
-      "x-source-type": "microphone"
-    },
-    body: JSON.stringify({
-      audio_filename: "",
-      source_type: "microphone"
-    }),
-    cache: "no-store",
-    keepalive: true,
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error("❌ Failed to start microphone:", errorText);
-    throw new Error(`Failed to start microphone: ${res.status}`);
-  }
-
-  console.log("🎙️ Microphone started with session ID:", sessionId);
-
-  // ✅ Stream-safe handling: just confirm first chunk
-  const reader = res.body?.getReader();
-  const decoder = new TextDecoder();
-  let firstChunk = "";
-
-  if (reader) {
-    const { value, done } = await reader.read();
-    if (!done && value) {
-      firstChunk = decoder.decode(value, { stream: true });
-      console.log("🎙️ Microphone stream started:", firstChunk.slice(0, 100)); // preview only
-    }
-  }
-
-  // ✅ Clean up reader to avoid hanging
-  reader?.cancel();
-
-  return {
-    status: "recording",
-    message: "Microphone streaming started successfully."
-  };
 }
 
 export async function csUploadIngest(

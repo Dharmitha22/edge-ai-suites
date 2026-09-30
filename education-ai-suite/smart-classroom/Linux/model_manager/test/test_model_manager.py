@@ -9,7 +9,6 @@ if _SC_ROOT not in sys.path:
 
 from model_manager import ModelManager
 from components.ocr.ocr_handle import OcrHandler
-from components.asr.asr_handle import AsrHandler
 from model_manager.capability.state import CapabilityState
 
 
@@ -167,183 +166,17 @@ def test_ocr_handler_reads_concurrency_from_config():
     handler.shutdown()
 
 
-# ---------------------------------------------------------------------------
-# AsrHandler state machine
-# ---------------------------------------------------------------------------
-
-def test_asr_handler_initial_state_is_unloaded():
-    handler = AsrHandler()
-    assert handler.state == CapabilityState.UNLOADED
-    assert handler.loaded is False
-
-
-def test_asr_handler_state_transitions_unloaded_to_ready():
-    from unittest.mock import MagicMock, patch
-    handler = AsrHandler()
-    mock_processor = MagicMock()
-    mock_processor.transcribe.return_value = "transcribed text"
-
-    with patch.object(handler, "_build_processor", return_value=mock_processor):
-        handler.load()
-
-    assert handler.state == CapabilityState.READY
-    assert handler.loaded is True
-
-    handler.shutdown()
-    assert handler.state == CapabilityState.UNLOADED
-    assert handler.loaded is False
-
-
-def test_asr_handler_state_reverts_on_load_failure():
-    from unittest.mock import patch
-    handler = AsrHandler()
-
-    with patch.object(handler, "_build_processor", side_effect=RuntimeError("load failed")):
-        try:
-            handler.load()
-            assert False, "expected RuntimeError"
-        except RuntimeError:
-            pass
-
-    assert handler.state == CapabilityState.UNLOADED
-    assert handler.loaded is False
-
-
-def test_asr_handler_reads_concurrency_from_config():
-    """ASR concurrency and queue_max come from config."""
-    from unittest.mock import MagicMock, patch
-    handler = AsrHandler()
-    mock_processor = MagicMock()
-    mock_processor.transcribe.return_value = "text"
-
-    with patch.object(handler, "_build_processor", return_value=mock_processor):
-        with patch.object(handler, "_concurrency_config", return_value=(2, 16)):
-            handler.load()
-
-    assert handler.max_concurrency == 2
-    assert handler._runner._queue_max == 16
-
-    handler.shutdown()
-
-
-def test_asr_transcribe_forwards_kwargs_to_processor():
-    """temperature (and any other kwarg) reaches the underlying processor."""
-    from unittest.mock import MagicMock, patch
-    handler = AsrHandler()
-    mock_processor = MagicMock()
-    mock_processor.transcribe.return_value = {"segments": []}
-
-    with patch.object(handler, "_build_processor", return_value=mock_processor):
-        handler.load()
-
-    result = handler.transcribe("chunk.wav", temperature=0.3)
-
-    assert result == {"segments": []}
-    mock_processor.transcribe.assert_called_once_with("chunk.wav", temperature=0.3)
-
-    handler.shutdown()
-
-
-def test_asr_transcribe_requires_load():
-    handler = AsrHandler()
-    try:
-        handler.transcribe("chunk.wav")
-        assert False, "expected RuntimeError"
-    except RuntimeError:
-        pass
-
-
-def test_asr_transcribe_serializes_under_max_concurrency_one():
-    """Concurrent transcribe() calls queue on the CapabilityRunner instead of
-    entering the model together. Guards against callers reaching around the
-    handler to the raw processor."""
-    from unittest.mock import patch
-    handler = AsrHandler()
-
-    inflight = []
-    peak = []
-
-    class SlowProcessor:
-        def transcribe(self, audio_path, temperature=0.0):
-            inflight.append(1)
-            peak.append(len(inflight))
-            time.sleep(0.05)
-            inflight.pop()
-            return {"segments": []}
-
-    with patch.object(handler, "_build_processor", return_value=SlowProcessor()):
-        with patch.object(handler, "_concurrency_config", return_value=(1, 8)):
-            handler.load()
-
-    threads = [
-        threading.Thread(target=handler.transcribe, args=(f"chunk{i}.wav",))
-        for i in range(4)
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert max(peak) == 1, f"expected serialized ASR calls, saw {max(peak)} concurrent"
-
-    handler.shutdown()
-
-
-def test_asr_component_does_not_bypass_the_runner():
-    """ASRComponent must call AsrHandler.transcribe(), not reach into
-    _processor — otherwise the CapabilityRunner is silently skipped.
-    Source-level check so the test stays free of torch/model imports."""
-    path = os.path.join(_SC_ROOT, "components", "asr_component.py")
-    with open(path, encoding="utf-8") as f:
-        source = f.read()
-
-    assert "_processor" not in source
-    assert "self.asr_handler.transcribe(" in source
-
-
-def test_health_reports_asr_state_without_loading():
+def test_health_reports_asr_as_external_service():
+    """ASR is served by the audio-analyzer microservice, not loaded in-process."""
     mgr = ModelManager.instance()
-    mgr.shutdown()  # ensure not loaded
+    mgr.shutdown()
 
     health = mgr.health()
     assert "asr" in health
     asr = health["asr"]
-    assert asr["state"] == "unloaded"
-    assert asr["loaded"] is False
-    assert asr["max_concurrency"] == 1
-    assert asr["device"] is None
-    assert asr["provider"] is None
-    assert "memory" not in asr
-
-
-def test_health_asr_memory_key_present_when_loaded():
-    from unittest.mock import MagicMock, patch
-
-    mgr = ModelManager.instance()
-    mgr.shutdown()
-
-    # Inject a mock ASR handler
-    mock_handler = MagicMock()
-    mock_handler.loaded = True
-    mock_handler.state.value = "ready"
-    mock_handler.provider = "openai"
-    mock_handler.device = "CPU"
-    mock_handler.max_concurrency = 1
-    mock_handler.memory_stats.return_value = {"process_rss_mb": 1024.0}
-
-    mgr._asr_handler = mock_handler
-
-    health = mgr.health()
-    asr = health["asr"]
-    assert asr["state"] == "ready"
-    assert asr["loaded"] is True
-    assert asr["device"] == "CPU"
-    assert asr["provider"] == "openai"
-    assert "memory" in asr
-    assert "process_rss_mb" in asr["memory"]
-
-    # cleanup
-    mgr.shutdown()
+    assert asr["provider"] == "audio-analyzer"
+    assert asr["state"] in ("external", "unavailable")
+    assert asr["max_concurrency"] is None
 
 
 def test_text_gen_returns_handler_and_does_not_raise():

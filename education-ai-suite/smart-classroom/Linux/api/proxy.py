@@ -21,13 +21,16 @@ Grading is exposed under the distinct ``/grading-api`` prefix (rewritten to
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 
 import httpx
 from fastapi import FastAPI, Request
 from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
 from starlette.responses import StreamingResponse
+from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 logger = logging.getLogger(__name__)
 
@@ -175,3 +178,83 @@ async def close_proxy_client(app: FastAPI) -> None:
     client = getattr(app.state, "proxy_client", None)
     if client is not None and not client.is_closed:
         await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Realtime transcription WebSocket passthrough (browser live-mic capture)
+# ---------------------------------------------------------------------------
+# The audio-analyzer exposes an OpenAI Realtime-compatible WebSocket at
+# /v1/realtime. In the containerized topology the service is internal-only, so
+# the SPA cannot reach it directly; this bridges the browser socket to the
+# service over the internal network, mirroring the HTTP reverse proxy above.
+
+def _audio_analyzer_ws_url(query: str = "") -> str:
+    base = os.environ.get("AUDIO_ANALYZER_URL")
+    if not base:
+        from utils.config_loader import config
+        aa = getattr(config, "audio_analyzer", None)
+        host = str(getattr(aa, "host_addr", "127.0.0.1")) if aa is not None else "127.0.0.1"
+        port = int(getattr(aa, "port", 8010)) if aa is not None else 8010
+        base = f"http://{host}:{port}"
+    ws_base = base.rstrip("/")
+    if ws_base.startswith("https://"):
+        ws_base = "wss://" + ws_base[len("https://"):]
+    elif ws_base.startswith("http://"):
+        ws_base = "ws://" + ws_base[len("http://"):]
+    url = f"{ws_base}/v1/realtime"
+    return f"{url}?{query}" if query else url
+
+
+async def _realtime_ws_proxy(client_ws: WebSocket) -> None:
+    """Bridge the browser realtime-transcription socket to the audio-analyzer."""
+    import websockets
+
+    upstream_url = _audio_analyzer_ws_url(client_ws.url.query)
+    await client_ws.accept()
+    try:
+        async with websockets.connect(upstream_url, max_size=None, open_timeout=10) as upstream:
+
+            async def client_to_upstream() -> None:
+                while True:
+                    message = await client_ws.receive()
+                    if message["type"] == "websocket.disconnect":
+                        await upstream.close()
+                        return
+                    text = message.get("text")
+                    if text is not None:
+                        await upstream.send(text)
+                        continue
+                    data = message.get("bytes")
+                    if data is not None:
+                        await upstream.send(data)
+
+            async def upstream_to_client() -> None:
+                async for message in upstream:
+                    if isinstance(message, (bytes, bytearray)):
+                        await client_ws.send_bytes(bytes(message))
+                    else:
+                        await client_ws.send_text(message)
+
+            tasks = [
+                asyncio.create_task(client_to_upstream()),
+                asyncio.create_task(upstream_to_client()),
+            ]
+            _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # noqa: BLE001 - proxy is best-effort; log and close
+        logger.warning("realtime WS proxy error (%s): %s", upstream_url, exc)
+    finally:
+        if client_ws.application_state != WebSocketState.DISCONNECTED:
+            try:
+                await client_ws.close()
+            except Exception:
+                pass
+
+
+def register_realtime_ws_proxy(app: FastAPI) -> None:
+    """Register the /v1/realtime WebSocket passthrough to the audio-analyzer."""
+    app.add_api_websocket_route("/v1/realtime", _realtime_ws_proxy)
+    logger.info("Realtime ASR WebSocket proxy registered: /v1/realtime -> audio-analyzer")
