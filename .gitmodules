@@ -106,10 +106,10 @@
 	url = https://github.com/hku-mars/FAST_LIO.git
 	branch = ROS2
 	shallow = true
-[submodule "education-ai-suite/smart-classroom/Linux/performance-tools"]
-	path = education-ai-suite/smart-classroom/Linux/performance-tools
-	url = https://github.com/intel-retail/performance-tools.git
 [submodule "education-ai-suite/smart-classroom/Linux/edge-ai-libraries"]
 	path = education-ai-suite/smart-classroom/Linux/edge-ai-libraries
 	url = https://github.com/suryam789/edge-ai-libraries.git
 	branch = main
+[submodule "education-ai-suite/smart-classroom/Linux/performance-tools"]
+	path = education-ai-suite/smart-classroom/Linux/performance-tools
+	url = https://github.com/intel-retail/performance-tools.git
