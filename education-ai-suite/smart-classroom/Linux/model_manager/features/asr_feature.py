@@ -1,15 +1,15 @@
 import json
 import logging
-import re
-import subprocess
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
-from components.ffmpeg import audio_preprocessing
+from components.asr_remote import persist_live_segments
 from dto.transcription_dto import TranscriptionRequest
 from pipeline import Pipeline
+from utils.audio_analyzer_client import AudioAnalyzerClient
 from utils.audio_util import save_audio_file
 from utils.config_loader import config
 
@@ -62,53 +62,56 @@ def transcribe_audio(
     return response
 
 
-@router.get("/devices")
-def list_audio_devices():
-    result = subprocess.run(
-        ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace"
-    )
-    audio_devices = re.findall(r'"(.*?)"\s*\(audio\)', result.stderr)
-    formatted_devices = [f"audio={d}" for d in audio_devices]
-    return {"devices": formatted_devices}
+class LiveTranscriptRequest(BaseModel):
+    session_id: str
+    segments: List[dict]
+    language: Optional[str] = None
 
 
-@router.post("/stop-mic")
-def stop_microphone(session_id: str):
-    process = audio_preprocessing.FFMPEG_PROCESSES.pop(session_id, None)
-    if process:
-        logger.info(f"Stopping microphone recording for session {session_id}...")
-        process.terminate()
-        process.wait(timeout=5)
-        return {"status": "stopped", "message": f"Microphone for session {session_id} stopped successfully."}
-    else:
-        return {"status": "idle", "message": f"No active microphone session found for {session_id}."}
+@router.post("/live-transcript")
+def persist_live_transcript(request: LiveTranscriptRequest):
+    """Persist a browser live-mic transcript so downstream stages can read it.
 
+    The realtime WebSocket path transcribes in the browser; this writes the
+    finalized segments into the session's transcript files (with TEACHER/STUDENT
+    mapping), mirroring what the file-upload path produces.
+    """
+    if not request.segments:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No transcript segments provided.",
+        )
+    result = persist_live_segments(request.session_id, request.segments, request.language)
+    return JSONResponse(status_code=status.HTTP_200_OK, content=result)
+    """F1 transcription exposed as a FeatureModule.
 
-class ASRFeature:
-    """F1 live transcription exposed as a FeatureModule."""
+    Transcription is served out-of-process by the audio-analyzer microservice,
+    so this feature declares no in-process capability requirement; it only
+    verifies the service is reachable at build time.
+    """
 
     id: str = "asr"
-    requires: List[str] = ["asr"]
+    requires: List[str] = []
     depends_on: List[str] = []
     router: APIRouter = router
 
     def __init__(self) -> None:
-        self._handle = None
+        self._client: Optional[AudioAnalyzerClient] = None
 
     def build(self) -> None:
-        """Acquire the ASR capability handle from the ModelManager."""
-        from model_manager import ModelManager
-        self._handle = ModelManager.instance().asr()
-        logger.info("ASRFeature built; ASR handle acquired from ModelManager.")
+        self._client = AudioAnalyzerClient()
+        if self._client.health():
+            logger.info("ASRFeature built; audio-analyzer reachable at %s.", self._client.base_url)
+        else:
+            logger.warning(
+                "ASRFeature built but audio-analyzer is not reachable at %s yet; "
+                "transcription will fail until the service is up.",
+                self._client.base_url,
+            )
 
     def teardown(self) -> None:
-
-        self._handle = None
-        logger.info("ASRFeature torn down; ASR handle reference released.")
+        self._client = None
+        logger.info("ASRFeature torn down.")
 
     def ui_descriptor(self) -> Dict:
         return {
@@ -118,7 +121,5 @@ class ASRFeature:
             "endpoints": {
                 "upload_audio": "/upload-audio",
                 "transcribe": "/transcribe",
-                "devices": "/devices",
-                "stop_mic": "/stop-mic",
             },
         }

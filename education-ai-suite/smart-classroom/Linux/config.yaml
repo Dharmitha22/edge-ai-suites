@@ -95,6 +95,16 @@ models:
       topics_min: 15
       topics_max: 25
 
+audio_analyzer:
+  # Transcription (ASR + diarization) is served by the containerized
+  # audio-analyzer microservice. In docker-compose the app reaches it via
+  # AUDIO_ANALYZER_URL=http://audio-analyzer:8010 (this host/port is the
+  # bare-metal / dev fallback). The service reads its own config.yaml
+  # (models, devices, diarization) from the submodule bind-mount.
+  host_addr: "127.0.0.1"
+  port: 8010
+  request_timeout_sec: 600
+
 mindmap:
   min_token: 20
 

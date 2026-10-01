@@ -5,13 +5,17 @@
 #
 # Multi-stage build:
 #   Stage 1 (ui-builder): compile the React/Vite SPA to /ui/dist.
-#   Stage 2 (runtime):    a slim FastAPI container that serves that SPA plus a
-#                         /health route via docker/skeleton_server.py — NO heavy
-#                         model stack. This is the "get the UI up" skeleton.
+#   Stage 2 (runtime):    a slim FastAPI container that serves that SPA plus
+#                         /health, /metrics, and the transcription endpoints
+#                         (/upload-audio, /transcribe, /live-transcript, and the
+#                         /v1/realtime WebSocket). Transcription is delegated to
+#                         the audio-analyzer microservice, so NO heavy model
+#                         stack (torch/openvino/paddle) is installed here.
 #
-# When the full backend (OVMS / model-downloader / content-search) is ready,
-# switch the runtime stage to install requirements.txt, copy the app source,
-# and run `uvicorn main:app` instead of `uvicorn skeleton_server:app`.
+# The remaining heavy features (summary / mindmap / video-analytics / OCR) still
+# require the full model stack; when that is ready, switch the runtime stage to
+# install requirements.txt, copy the whole app source, and run `uvicorn main:app`
+# instead of `uvicorn skeleton_server:app`.
 #
 # Build context is the Linux/ app root:
 #   docker build -f docker/app.Dockerfile -t smart-classroom-app:local .
@@ -51,13 +55,18 @@ ARG HTTP_PROXY=""
 ARG HTTPS_PROXY=""
 ARG NO_PROXY=""
 
-# Minimal deps for the skeleton server only. Versions pinned to match
-# requirements.txt so the runtime matches the full app when it is layered in.
+# Lightweight deps for the UI-serving + transcription-proxy server. The audio
+# analyzer does the actual ASR out-of-process, so no torch/openvino here.
+# Versions pinned to match requirements.txt so the runtime matches the full app.
 RUN HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" NO_PROXY="$NO_PROXY" \
     pip install --no-cache-dir \
         "fastapi==0.121.3" \
         "uvicorn==0.38.0" \
-        "httpx>=0.27,<1.0"
+        "httpx>=0.27,<1.0" \
+        "requests>=2.32,<3" \
+        "websockets==15.0.1" \
+        "python-multipart>=0.0.27" \
+        "PyYAML==6.0.2"
 
 # Non-root runtime user.
 RUN useradd --create-home --uid 10001 app
@@ -67,6 +76,15 @@ WORKDIR /app
 COPY docker/skeleton_server.py ./skeleton_server.py
 COPY monitoring/ ./monitoring/
 COPY --from=ui-builder /ui/dist ./ui/dist
+
+# Transcription path (lightweight): the client + speaker-mapping layer, the WS
+# proxy, and the config the server reads at startup. Only the modules the
+# skeleton server imports are needed at runtime; the rest stay out of the image.
+COPY utils/ ./utils/
+# components/ is a namespace package (no __init__.py in the repo); copy just the module.
+COPY components/asr_remote.py ./components/
+COPY api/__init__.py api/proxy.py ./api/
+COPY config.yaml runtime_config.yaml ./
 
 RUN chown -R app:app /app
 USER app

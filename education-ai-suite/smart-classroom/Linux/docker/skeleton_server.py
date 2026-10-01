@@ -93,4 +93,121 @@ def _mount_spa() -> None:
         return FileResponse(str(index_file))
 
 
+# --- Transcription endpoints (delegated to the audio-analyzer microservice) ---
+#
+# The heavy model stack (summary/mindmap/VA/OCR) is NOT loaded here; transcription
+# is served out-of-process by the audio-analyzer, so these endpoints only need the
+# lightweight client + speaker-mapping layer. Wrapped in try/except so a config or
+# wiring problem can never take down the UI + /health the container is built to serve.
+try:
+    import json as _json
+    from typing import List as _List, Optional as _Optional
+
+    from fastapi import File, Header, HTTPException, UploadFile, status
+    from fastapi.responses import StreamingResponse
+    from pydantic import BaseModel
+
+    from api.proxy import register_realtime_ws_proxy
+    from components.asr_remote import RemoteASRComponent, persist_live_segments
+    from utils.audio_util import save_audio_file
+    from utils.session_manager import generate_session_id
+
+    class _TranscriptionRequest(BaseModel):
+        audio_filename: str
+
+    class _LiveTranscriptRequest(BaseModel):
+        session_id: str
+        segments: _List[dict]
+        language: _Optional[str] = None
+
+    @app.post("/upload-audio")
+    def upload_audio(file: UploadFile = File(...)):
+        """Persist an uploaded audio file so /transcribe can hand it to the service."""
+        filename, filepath = save_audio_file(file)
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={"filename": filename, "message": "File uploaded successfully", "path": filepath},
+        )
+
+    @app.post("/transcribe")
+    def transcribe(request: _TranscriptionRequest, x_session_id: _Optional[str] = Header(None)):
+        """Stream a transcription for an uploaded audio file via the audio-analyzer."""
+        if not os.path.isfile(request.audio_filename):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Audio file not found.")
+        session_id = x_session_id or generate_session_id()
+        component = RemoteASRComponent(session_id)
+
+        def _stream():
+            for chunk in component.process(request.audio_filename):
+                yield _json.dumps(chunk) + "\n"
+
+        response = StreamingResponse(_stream(), media_type="application/json")
+        response.headers["X-Session-ID"] = session_id
+        return response
+
+    @app.post("/live-transcript")
+    def live_transcript(request: _LiveTranscriptRequest):
+        """Persist a browser live-mic transcript into the session."""
+        if not request.segments:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No transcript segments provided.")
+        return persist_live_segments(request.session_id, request.segments, request.language)
+
+    @app.get("/features", include_in_schema=False)
+    def features() -> JSONResponse:
+        """Advertise the transcription (audio) feature to the SPA.
+
+        The skeleton only serves ASR (delegated to the audio-analyzer); the heavy
+        features (summary/mindmap/video-analytics/OCR) need the full backend, so
+        they are intentionally omitted here. The SPA's feature guard reads this to
+        enable the recording/upload → transcribe path.
+        """
+        from utils.config_loader import config
+
+        asr_flag = getattr(getattr(config, "features", None), "asr", True)
+        if not bool(getattr(asr_flag, "enabled", asr_flag)):
+            return JSONResponse({"features": []})
+        try:
+            chunking = bool(config.audio_preprocessing.chunking)
+        except Exception:
+            chunking = False
+        try:
+            diarization = bool(config.models.asr.diarization)
+        except Exception:
+            diarization = False
+        return JSONResponse({"features": [{
+            "id": "asr",
+            "chunking": chunking,
+            "diarization": diarization,
+            "endpoints": {"upload_audio": "/upload-audio", "transcribe": "/transcribe"},
+            "dependency": [],
+            "requires": [],
+        }]})
+
+    @app.get("/create-session", include_in_schema=False)
+    def create_session() -> JSONResponse:
+        """Mint a session id for the SPA's upload/record → transcribe flow."""
+        return JSONResponse({"session-id": generate_session_id()})
+
+    @app.post("/start-monitoring", include_in_schema=False)
+    def start_monitoring() -> JSONResponse:
+        """No-op: the metrics-collector sidecar is not part of the skeleton."""
+        return JSONResponse({"status": "disabled", "message": "Monitoring is not available in the UI skeleton."})
+
+    @app.post("/stop-monitoring", include_in_schema=False)
+    def stop_monitoring() -> JSONResponse:
+        return JSONResponse({"status": "disabled", "message": "Monitoring is not available in the UI skeleton."})
+
+    @app.post("/store-audio-duration", include_in_schema=False)
+    def store_audio_duration() -> JSONResponse:
+        """Accept-and-ignore: duration tracking lives in the full backend."""
+        return JSONResponse({"status": "ok", "message": "Audio duration not tracked in the UI skeleton."})
+
+    # Browser live-mic: bridge the /v1/realtime WebSocket to the audio-analyzer.
+    register_realtime_ws_proxy(app)
+except Exception as _exc:  # noqa: BLE001 - keep UI + health serving even if ASR wiring fails
+    import logging as _logging
+
+    _logging.getLogger(__name__).warning("Transcription endpoints unavailable: %s", _exc)
+
+
 _mount_spa()

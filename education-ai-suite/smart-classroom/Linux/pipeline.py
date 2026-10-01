@@ -1,7 +1,7 @@
 from fastapi import HTTPException, status
 import re
-from components.stream_reader import AudioStreamReader
-from components.asr_component import ASRComponent
+import requests
+from components.asr_remote import RemoteASRComponent
 from utils.config_loader import config
 import logging, os
 from utils.session_manager import generate_session_id
@@ -27,12 +27,8 @@ class Pipeline:
     def __init__(self, session_id=None):
         logger.info("pipeline initialized")
         self.session_id = session_id or generate_session_id()
-        # Bind models during construction
-        self.transcription_pipeline = [
-            AudioStreamReader(self.session_id),
-            ASRComponent(self.session_id, temperature=config.models.asr.temperature) 
-        ]
-
+        # Transcription is served by the audio-analyzer microservice; no
+        # in-process ASR model is bound here.
         self.summarizer_pipeline = [
             SummarizerComponent(self.session_id, mode=config.models.summarizer.mode)
         ]
@@ -62,16 +58,31 @@ class Pipeline:
         return any(getattr(c, "board_ocr_partial", False) for c in self.summarizer_pipeline)
 
     def run_transcription(self, input):
-        input_gen = ({"input": input} for _ in range(1))
+        audio_path = getattr(input, "audio_filename", None)
+        if not audio_path and isinstance(input, dict):
+            audio_path = input.get("audio_filename")
+        if not audio_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No audio file provided for transcription.",
+            )
 
-        for component in self.transcription_pipeline:
-            input_gen = component.process(input_gen)
-
+        component = RemoteASRComponent(
+            self.session_id,
+            temperature=config.models.asr.temperature,
+            language=getattr(config.app, "language", "en"),
+        )
         try:
-            for chunk_trancription in input_gen:
-                yield chunk_trancription
-        finally:
-            pass
+            for chunk_transcription in component.process(audio_path):
+                yield chunk_transcription
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except requests.RequestException as e:
+            logger.error("Audio analyzer service error: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Audio analyzer service is unavailable.",
+            )
             
     
     def run_summarizer(self):

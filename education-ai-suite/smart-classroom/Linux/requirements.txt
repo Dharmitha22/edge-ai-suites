@@ -1,5 +1,4 @@
 fastapi==0.121.3
-funasr==1.2.7
 
 # OpenVINO stack
 openvino==2026.3.0
@@ -16,6 +15,8 @@ python-dotenv>=1.2.2
 pydub==0.25.1
 python-multipart>=0.0.27
 httpx>=0.27,<1.0  # async client for the same-origin reverse proxy (api/proxy.py)
+requests>=2.32,<3  # sync HTTP client for the audio-analyzer + content-search calls
+websockets==15.0.1  # WebSocket transport for uvicorn + realtime ASR proxy (api/proxy.py)
 pywin32==311; sys_platform == "win32"
 PyYAML==6.0.2
 uvicorn==0.38.0

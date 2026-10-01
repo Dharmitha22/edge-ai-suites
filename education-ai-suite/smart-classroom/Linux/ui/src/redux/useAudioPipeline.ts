@@ -107,6 +107,10 @@ function useTranscriptStage() {
   useEffect(() => {
     if (!hasAsrFeature) return;
     if (!aiProcessing || !uploadedAudioPath || !sessionId) return;
+    // Browser live-mic drives the transcript directly over the realtime
+    // WebSocket (see Header + RealtimeMicSession); the file-based /transcribe
+    // stream must not run for the MICROPHONE sentinel path.
+    if (uploadedAudioPath === 'MICROPHONE') return;
     if (startedRef.current || transcriptionDone) {
       console.log('🎯 Transcript stream prevented:', {
         aiProcessing,

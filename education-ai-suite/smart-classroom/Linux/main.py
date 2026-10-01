@@ -60,8 +60,11 @@ register_routes(app)
 # Same-origin passthrough to the no-CORS backends (content_search :9011,
 # grading :9012). Registered after register_routes() so nothing is shadowed and
 # before _mount_spa() so the SPA catch-all reserves these prefixes.
-from api.proxy import register_proxy_routes
+from api.proxy import register_proxy_routes, register_realtime_ws_proxy
 register_proxy_routes(app)
+# WebSocket passthrough so the browser can stream live-mic audio to the
+# audio-analyzer's realtime transcription endpoint over the app origin.
+register_realtime_ws_proxy(app)
 
 
 def _mount_spa(app: FastAPI) -> None:
