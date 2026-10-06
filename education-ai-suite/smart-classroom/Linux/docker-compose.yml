@@ -123,8 +123,11 @@ services:
       context: ./edge-ai-libraries/microservices/audio-analyzer
       dockerfile: docker/Dockerfile
       args:
-        # Set INSTALL_CJK=true to bundle the optional FunASR Paraformer (zh/en) provider.
-        INSTALL_CJK: "${INSTALL_CJK:-false}"
+        # Defaults to true because the committed audio-analyzer config.yaml
+        # selects provider: funasr (paraformer-zh); a false build would crash
+        # at startup. Override with INSTALL_CJK=false only alongside a Whisper
+        # provider in that config.
+        INSTALL_CJK: "${INSTALL_CJK:-true}"
         HTTP_PROXY: "${HTTP_PROXY:-}"
         HTTPS_PROXY: "${HTTPS_PROXY:-}"
         NO_PROXY: "${NO_PROXY:-}"
@@ -149,7 +152,12 @@ services:
       - audio-analyzer-storage:/app/audio_analyzer/storage
       - audio-analyzer-cache:/app/audio_analyzer/.cache
     healthcheck:
-      # Whisper warmup on GPU can take ~2min; keep a generous start_period.
+      # The port only binds after startup preloads models. First run downloads
+      # them (FunASR paraformer-zh ~900MB + VAD/punc, or Whisper) which, on a
+      # slow/proxied network, can take far longer than a Whisper GPU warmup —
+      # so start_period must cover that one-time download or the container is
+      # wrongly flagged unhealthy before it ever serves. Models persist to the
+      # audio-analyzer-models volume, so subsequent starts are fast.
       test:
         - CMD
         - python3
@@ -157,7 +165,7 @@ services:
         - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=5).read()"
       interval: 15s
       timeout: 10s
-      start_period: 240s
+      start_period: 1800s
       retries: 5
     restart: unless-stopped
     networks: [smart-classroom]

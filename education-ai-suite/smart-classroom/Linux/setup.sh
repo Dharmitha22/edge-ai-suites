@@ -16,6 +16,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log() { printf '\033[1;32m[setup]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[setup]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# --- Git submodules (vendored audio-analyzer + performance-tools) ------------
+# These hold the ASR microservice and perf tooling the app/compose build needs.
+# Idempotent: re-running just no-ops when already initialized.
+if git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  log "Initializing git submodules (edge-ai-libraries, performance-tools)…"
+  git -C "$SCRIPT_DIR" submodule update --init edge-ai-libraries
+  git -C "$SCRIPT_DIR" submodule update --init performance-tools
+else
+  log "Not a git checkout — skipping submodule init."
+fi
+
 # --- Node.js toolchain for the UI build (0.B.2) ------------------------------
 log "Checking Node.js toolchain for the UI build…"
 NODE_SETUP="${SCRIPT_DIR}/scripts/node-setup.sh"
