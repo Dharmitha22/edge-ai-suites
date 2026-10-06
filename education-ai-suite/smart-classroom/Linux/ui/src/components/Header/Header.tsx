@@ -31,6 +31,7 @@ import {
   startTranscription,
   transcriptionComplete,
   setMonitoringActive,
+  setMonitoringPaused,
   setUploadedVideoFiles,
   setHasUploadedVideoFiles,
   setVideoPlaybackMode,
@@ -42,6 +43,7 @@ import {
 import { resetTranscript, appendTranscriptChunk, finishTranscript, updateSpeakerStats, setFinalTranscript } from '../../redux/slices/transcriptSlice';
 import { resetSummary } from '../../redux/slices/summarySlice';
 import { clearMindmap } from '../../redux/slices/mindmapSlice';
+import { markSessionStart } from '../../redux/slices/resourceSlice';
 import { useTranslation } from 'react-i18next';
 import {
   getAudioDevices,
@@ -49,8 +51,6 @@ import {
   startVideoAnalytics,
   stopVideoAnalytics,
   createSession,
-  startMonitoring,  
-  stopMonitoring,
   startPipelineMonitoring,
   checkRecordedVideos,
 } from '../../services/api';
@@ -88,7 +88,6 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
   const [videoAnalyticsEnabled] = useState(true);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
-  const monitoringActive = useAppSelector((s) => s.ui.monitoringActive);
   const dispatch = useAppDispatch();
   // Browser live-microphone capture (streams to the audio-analyzer over the
   // /v1/realtime WebSocket); replaces the retired server-side dshow recording.
@@ -132,18 +131,9 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
 
   useEffect(() => {
     dispatch(loadCameraSettingsFromStorage());
-    const stopExistingMonitoring = async () => {
-    try {
-        console.log('🔄 Stopping any existing monitoring on component mount...');
-        await stopMonitoring();
-        dispatch(setMonitoringActive(false));
-        console.log('✅ Existing monitoring stopped successfully');
-      } catch (error) {
-        console.log('ℹ️ No existing monitoring to stop (this is normal):', error);
-        dispatch(setMonitoringActive(false));
-      }
-    };
-    stopExistingMonitoring();
+    // No session yet on mount, so there is nothing to show on the dashboard.
+    dispatch(setMonitoringActive(false));
+    dispatch(setMonitoringPaused(false));
     
     // Only check audio devices if audio features are enabled
     const hasAudioFeatures = featureGuard.hasFeature('asr') ||
@@ -586,20 +576,10 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
       const sessionResponse = await createSession();
       const sharedSessionId = sessionResponse.sessionId;
       dispatch(setSessionId(sharedSessionId));
-      try {
-        // Covers the handover as a whole: the stop, the 5s settle and the start.
-        report(t('startRecording.startingMonitoring', 'Starting resource monitoring…'));
-        if (monitoringActive) {
-          await stopMonitoring();
-          dispatch(setMonitoringActive(false));
-          await new Promise(res => setTimeout(res, 5000));
-        }
-        console.log('📊 Starting monitoring for new session:', sharedSessionId);
-        await startMonitoring(sharedSessionId);
-        dispatch(setMonitoringActive(true));
-      } catch (monitoringError) {
-        console.error('❌ Monitoring restart failed (non-critical):', monitoringError);
-      }
+      // Session-id now created: start showing utilization on the dashboard.
+      dispatch(markSessionStart());
+      dispatch(setMonitoringPaused(false));
+      dispatch(setMonitoringActive(true));
 
       if (withMic) {
         dispatch(setUploadedAudioPath('MICROPHONE'));

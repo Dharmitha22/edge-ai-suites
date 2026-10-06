@@ -44,7 +44,7 @@ const MetricsPoller: React.FC = () => {
       if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
       if (!finalFetchDoneRef.current) {
         (async () => {
-          try { dispatch(setMetrics(await getResourceMetrics(effectiveSessionId))); } catch {}
+          try { dispatch(setMetrics(await getResourceMetrics())); } catch {}
           finally { finalFetchDoneRef.current = true; }
         })();
       }
@@ -57,7 +57,7 @@ const MetricsPoller: React.FC = () => {
     let cancelled = false;
     const poll = async () => {
       if (cancelled) return;
-      try { dispatch(setMetrics(await getResourceMetrics(effectiveSessionId))); } catch (e) { console.warn('Metrics poll error:', e); }
+      try { dispatch(setMetrics(await getResourceMetrics())); } catch (e) { console.warn('Metrics poll error:', e); }
       finally { if (!cancelled) timeoutRef.current = window.setTimeout(poll, POLL_MS); }
     };
     poll();

@@ -3,15 +3,17 @@
 # Skeleton phase: the `app` service (React SPA + FastAPI /health skeleton) and
 # the `metrics-collector` telemetry sidecar (live CPU/GPU/NPU/memory/power for
 # the Resource Utilization dashboard, built from the vendored
-# performance-tools/ submodule) are active. The OVMS, model-downloader, and
-# content-search services below are still scaffolded as commented placeholders
-# — uncomment and complete each one as its image is built.
+# performance-tools/ submodule) are active and started by default, so the
+# dashboard always has live values as soon as a session starts — no separate
+# profile flag needed. The OVMS, model-downloader, and content-search services
+# below are still scaffolded as commented placeholders — uncomment and
+# complete each one as its image is built.
 #
 # See docs/phase-0-containerization-plan.md for the full target topology.
 #
 # Usage:
-#   git submodule update --init            # first time only
-#   docker compose up -d --build          # CPU-only, UI skeleton
+#   git submodule update --init            # first time only (performance-tools + audio-analyzer)
+#   docker compose up -d --build          # CPU-only, UI skeleton + dashboard
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 #
 # Then open http://localhost:8000/ and curl http://localhost:9100/metrics
@@ -44,9 +46,8 @@ services:
     restart: unless-stopped
     networks: [smart-classroom]
     depends_on:
-      # metrics-collector disabled by default (resource dashboard; not needed for ASR).
-      # Re-enable with: docker compose --profile dashboard up -d --build
       audio-analyzer: { condition: service_started }
+      metrics-collector: { condition: service_healthy }
     environment:
       - METRICS_COLLECTOR_URL=http://metrics-collector:9000
       - AUDIO_ANALYZER_URL=http://audio-analyzer:8010
@@ -65,16 +66,6 @@ services:
     #   - model-cache:/app/models:ro
 
   metrics-collector:   # telemetry sidecar: CPU/GPU/NPU/memory/power -> /metrics, /platform-info
-    # Opt-in: excluded from the default `docker compose up`. Enable it with
-    # `docker compose --profile dashboard up -d --build` (requires the
-    # performance-tools submodule to be initialised for the build context).
-    profiles: ["dashboard"]
-    # live-metrics (the /metrics, /platform-info HTTP API) isn't in any
-    # published intel/retail-benchmark tag yet, so this builds from the
-    # vendored performance-tools/ submodule (git submodule update --init)
-    # instead of pulling a registry image. Once a tagged release with
-    # live-metrics exists, this can switch to `image: intel/retail-benchmark:<tag>`
-    # with no build step (see performance-tools/docker/docker-compose-reg.yaml).
     build:
       context: performance-tools
       dockerfile: docker/Dockerfile

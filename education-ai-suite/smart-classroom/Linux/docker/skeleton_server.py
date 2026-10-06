@@ -188,15 +188,6 @@ try:
         """Mint a session id for the SPA's upload/record → transcribe flow."""
         return JSONResponse({"session-id": generate_session_id()})
 
-    @app.post("/start-monitoring", include_in_schema=False)
-    def start_monitoring() -> JSONResponse:
-        """No-op: the metrics-collector sidecar is not part of the skeleton."""
-        return JSONResponse({"status": "disabled", "message": "Monitoring is not available in the UI skeleton."})
-
-    @app.post("/stop-monitoring", include_in_schema=False)
-    def stop_monitoring() -> JSONResponse:
-        return JSONResponse({"status": "disabled", "message": "Monitoring is not available in the UI skeleton."})
-
     @app.post("/store-audio-duration", include_in_schema=False)
     def store_audio_duration() -> JSONResponse:
         """Accept-and-ignore: duration tracking lives in the full backend."""

@@ -2,12 +2,13 @@ import React, { useRef, useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import "../../assets/css/UploadSection.css";
 import handwrittenIcon from "../../assets/images/handwritten_preview.svg";
-import { csUploadIngest, csQueryTask, csIngest, csCleanupTask, csDownloadText, getOcrDownloadUrl, createSession, startMonitoring, csGetFilesList, csGetTags } from "../../services/api";
+import { csUploadIngest, csQueryTask, csIngest, csCleanupTask, csDownloadText, getOcrDownloadUrl, createSession, csGetFilesList, csGetTags } from "../../services/api";
 import OcrPreviewModal from "../Modals/OcrPreviewModal";
 import RemoveConfirmationModal from "../common/RemoveConfirmationModal";
 import FileManager from "./FileManager";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
 import { setCsProcessing, setSessionId, setMonitoringActive, setCsUploadsComplete, setCsHasUploads, setCsTags, setCsSummarizing, setCsServerFilesExist } from "../../redux/slices/uiSlice";
+import { markSessionStart } from "../../redux/slices/resourceSlice";
 
 type TaskStatus =
   | "STAGED"
@@ -108,12 +109,9 @@ const UploadSection: React.FC<UploadSectionProps> = ({ disabled, active }) => {
       }
     }
     if (sessionIdRef.current && !monitoringActiveRef.current) {
-      try {
-        await startMonitoring(sessionIdRef.current);
-        dispatch(setMonitoringActive(true));
-      } catch (e) {
-        console.warn("Could not start monitoring:", e);
-      }
+      // Session-id now created: start showing utilization on the dashboard.
+      dispatch(markSessionStart());
+      dispatch(setMonitoringActive(true));
     }
   }, [dispatch]);
 
