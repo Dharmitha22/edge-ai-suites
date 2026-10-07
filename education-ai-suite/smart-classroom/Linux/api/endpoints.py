@@ -17,7 +17,7 @@ from utils.storage_manager import StorageManager
 from utils.session_paths import SessionPaths
 from utils.platform_info import get_platform_and_model_info
 from dto.project_settings import ProjectSettings
-from monitoring.monitor import start_monitoring, stop_monitoring, get_metrics
+from monitoring.monitor import get_metrics
 from dto.audiosource import AudioSource
 from components.ffmpeg import audio_preprocessing
 from utils.audio_util import save_audio_file
@@ -117,16 +117,9 @@ def update_project_config(payload: ProjectSettings):
         raise HTTPException(status_code=400, detail="No valid fields to update.")
     return RuntimeConfig.update_section("Project", updates)
 
-@router.post("/start-monitoring")
-def start_monitoring_endpoint( x_session_id: Optional[str] = Header(None)):
-    start_monitoring(str(SessionPaths.utilization_logs_dir(x_session_id)))
-    return JSONResponse(content={"status": "success", "message": "Monitoring started"})
-
 @router.get("/metrics")
-def get_metrics_endpoint(x_session_id: Optional[str] = Header(None)):
-    if x_session_id is None or "":
-        return ""
-    return get_metrics(str(SessionPaths.utilization_logs_dir(x_session_id)))
+def get_metrics_endpoint():
+    return get_metrics()
 
 @router.get("/platform-info")
 def get_platform_info():
@@ -136,11 +129,6 @@ def get_platform_info():
     except Exception as e:
         logger.error(f"Error fetching platform info: {e}")
         return JSONResponse(content={"error": "Error fetching platform info"}, status_code=500)
-
-@router.post("/stop-monitoring")
-def stop_monitoring_endpoint():
-    stop_monitoring()
-    return JSONResponse(content={"status": "success", "message": "Monitoring stopped"})
 
 # Global video analytics service instances per session
 va_services = {}  # {session_id: VideoAnalyticsPipelineService}

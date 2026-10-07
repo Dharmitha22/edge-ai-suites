@@ -548,12 +548,11 @@ export async function uploadMindmapImage(sessionId: string, png: Blob): Promise<
   }
 }
 
-export async function getResourceMetrics(sessionId: string): Promise<any> {
+export async function getResourceMetrics(): Promise<any> {
   return safeApiCall(async () => {
     const res = await fetch(`${BASE_URL}/metrics`, {
       method: 'GET',
       headers: {
-        'x-session-id': sessionId,
         'Accept': 'application/json'
       }
     });
@@ -1024,41 +1023,6 @@ export async function createSession(): Promise<{ sessionId: string }> {
     console.log('🟢 Session ID created:', sessionId);
 
     return { sessionId };
-  });
-}
-
-export async function startMonitoring(sessionId: string): Promise<{ status: string; message: string }> {
-  return safeApiCall(async () => {
-    console.log('📊 Starting monitoring for session:', sessionId);
-    const res = await fetch(`${BASE_URL}/start-monitoring`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-session-id': sessionId  // Pass session ID in header like transcription
-      },
-    });
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to start monitoring: ${res.status} - ${errorText}`);
-    }
-    return await res.json();
-  });
-}
-
-export async function stopMonitoring(): Promise<{ status: string; message: string }> {
-  return safeApiCall(async () => {
-    console.log('🛑 Stopping monitoring');
-    const res = await fetch(`${BASE_URL}/stop-monitoring`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-    });
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to stop monitoring: ${res.status} - ${errorText}`);
-    }
-    return await res.json();
   });
 }
 

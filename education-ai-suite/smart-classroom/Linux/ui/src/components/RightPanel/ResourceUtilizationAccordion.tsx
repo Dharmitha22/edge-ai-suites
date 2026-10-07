@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppSelector } from '../../redux/hooks';
 import { useResourceMetricTimer } from '../../hooks/useResourceMetricTimer';
 import MonitoringPausedBanner from '../common/MonitoringPausedBanner';
+import { parseServerTimestamp } from '../../utils/serverTime';
 Chart.register(...registerables);
 
 interface ResourceUtilizationAccordionProps {
@@ -39,7 +40,7 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
   const createSimpleChartData = (data: any[], label: string, color: string) => {
     if (!data || data.length === 0) return { labels: [], datasets: [] };
 
-    const labels = data.map((item: any) => item[0] ? new Date(item[0]).toLocaleTimeString() : '');
+    const labels = data.map((item: any) => item[0] ? parseServerTimestamp(item[0]).toLocaleTimeString() : '');
 
     return {
       labels,
